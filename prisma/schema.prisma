@@ -36,7 +36,7 @@ model AlgorithmInfo {
 model AlgorithmUserRelation {
   id           Int      @id @default(autoincrement())
   relation_id  String   @unique
-  user_id      Int
-  algorithm_id Int
+  user_id      String
+  algorithm_id String
   createdAt    DateTime @default(now())
 }

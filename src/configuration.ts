@@ -11,6 +11,7 @@ import * as redis from '@midwayjs/redis';
 import { ReportMiddleware } from './middleware/report.middleware';
 import { DefaultFilter } from './filter/default.filter';
 import { ResponseMiddleware } from '@/middleware/response.middleware';
+import * as ws from '@midwayjs/ws';
 
 @Configuration({
   imports: [
@@ -25,6 +26,7 @@ import { ResponseMiddleware } from '@/middleware/response.middleware';
     busboy,
     crossDomain,
     redis,
+    ws,
   ],
   importConfigs: [join(__dirname, './config')],
 })
