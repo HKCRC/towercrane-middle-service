@@ -1,7 +1,9 @@
 import { PrismaService } from '@/providers/prisma';
-import { Context, Inject, Provide } from '@midwayjs/core';
+import { Context, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { AlgorithmStatus } from '@/types';
+
 @Provide()
+@Scope(ScopeEnum.Request, { allowDowngrade: true })
 export class AlgorithmService {
   @Inject()
   ctx: Context;

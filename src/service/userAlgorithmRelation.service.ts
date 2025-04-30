@@ -1,8 +1,9 @@
-import { Provide } from '@midwayjs/core';
+import { Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { PrismaService } from '@/providers/prisma';
 import { v4 as uuidv4 } from 'uuid';
 
 @Provide()
+@Scope(ScopeEnum.Request, { allowDowngrade: true })
 export class UserAlgorithmRelationService {
   async createRelation(userID: string, algorithmID: string) {
     try {

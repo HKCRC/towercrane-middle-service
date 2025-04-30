@@ -1,7 +1,5 @@
 import { MidwayConfig } from '@midwayjs/core';
 import 'dotenv/config';
-import { webSocket } from './config.websocket';
-
 export default {
   // use for cookie sign key, should change to your own and keep security
   keys: '1745914007841_9642',
@@ -27,5 +25,7 @@ export default {
       port: process.env.REDIS_PORT,
     },
   },
-  webSocket,
+  webSocket: {
+    port: 30002,
+  },
 } as MidwayConfig;

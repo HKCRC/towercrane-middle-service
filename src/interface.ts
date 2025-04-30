@@ -1,27 +1,20 @@
-import { Context } from '@midwayjs/ws';
-
 /**
  * @description User-Service parameters
  */
 export interface IUserOptions {
-  uid: string;
+  uid: number;
 }
 
-export interface ExtendedContext extends Context {
-  handshake: {
-    auth: {
-      Authorization?: string;
-      userID?: string | number;
-    };
-    headers: {
-      mode?: string;
-    };
-    user?: {
-      user: any;
-      userID: string | number;
-    };
-    algorithmMode?: boolean;
-  };
-  socket: any;
+export interface IWebSocketOptions {
+  port: number;
+}
+
+export interface IWebSocketClient {
   id: string;
+  socketID: string;
+}
+
+export interface IWebSocketServer {
+  id: string;
+  socketID: string;
 }
