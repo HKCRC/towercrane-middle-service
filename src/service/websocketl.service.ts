@@ -435,8 +435,7 @@ export class SocketIOService {
   }
 
   private async clientMsgHandler(socket: Socket, data: any) {
-    console.error('收到客户端消息:', socket.handshake.auth.userID);
-    const userId = socket.handshake.auth.userID;
+    const userId = socket.handshake?.auth?.userID;
     if (!userId) {
       console.error('客户端消息没有用户ID');
       return;

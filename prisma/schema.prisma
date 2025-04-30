@@ -13,6 +13,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 工地信息
+model PlaceInfo {
+  id            Int      @id @default(autoincrement())
+  place_id      String   @unique
+  place_name    String   @default("")
+  place_type    String   @default("")
+  place_address String   @default("")
+  extra_info    String   @default("")
+  createdAt     DateTime @default(now())
+}
+
+// 用户信息
 model User {
   id          Int      @id @default(autoincrement())
   uid         String   @unique
@@ -20,9 +32,11 @@ model User {
   password    String // 存储加密后的密码
   role        Int      @default(1)
   enable      Boolean  @default(true)
+  place_id    String   @default("")
   createdAt   DateTime @default(now())
 }
 
+// 算法信息
 model AlgorithmInfo {
   id           Int      @id @default(autoincrement())
   algorithm_id String   @unique
@@ -33,6 +47,7 @@ model AlgorithmInfo {
   createdAt    DateTime @default(now())
 }
 
+// 算法用户关系 一个用户可以关联多个算法
 model AlgorithmUserRelation {
   id           Int      @id @default(autoincrement())
   relation_id  String   @unique
