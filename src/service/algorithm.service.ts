@@ -37,7 +37,7 @@ export class AlgorithmService {
       const result = await PrismaService.algorithmInfo.findFirst({
         where: { name },
       });
-      return result;
+      return result.algorithm_id;
     } catch (error) {
       throw new Error('Failed to get algorithm by name');
     }

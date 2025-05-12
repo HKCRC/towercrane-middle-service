@@ -15,3 +15,8 @@ export enum SOCKET_EVENT {
   CLIENT_REASSIGN_ALGORITHM = 'client-reassign-algorithm',
   CLIENT_EXIT = 'client-exit',
 }
+
+export enum USER_STATUS {
+  ONLINE = 'online',
+  OFFLINE = 'offline',
+}

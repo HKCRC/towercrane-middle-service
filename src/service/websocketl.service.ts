@@ -340,17 +340,17 @@ export class SocketIOService {
       const existedID = await this.algorithmService.getAlgorithmByName(
         parserData.name
       );
-      await this.handleClientStatusUpdate(existedID.algorithm_id, this.io);
+      await this.handleClientStatusUpdate(existedID, this.io);
       if (existedID) {
         const algorithm = {
           name: data.name,
           map_name: data.map_name,
           status: data.status,
           description: data.description,
-          algorithm_id: existedID.algorithm_id,
+          algorithm_id: existedID,
         };
         const result = await this.algorithmService.updateAlgorithm(
-          existedID.algorithm_id,
+          existedID,
           algorithm
         );
         await this.objectInsert(socket.id, {
@@ -427,6 +427,7 @@ export class SocketIOService {
         } else {
           stringValue = typeof value === 'string' ? value : value.toString();
         }
+
         await this.redisService.hset(stringKey, field, stringValue);
       }
     } catch (error) {
@@ -440,15 +441,27 @@ export class SocketIOService {
       console.error('客户端消息没有用户ID');
       return;
     }
+
+    let algorithm_id = null;
     const findUserAlgorthmRelation =
       await this.userAlgorithmRelationService.getRelationByUserId(userId);
     if (!findUserAlgorthmRelation.length) {
       this.logger.info('对应关系不存在');
       return;
+    } else {
+      const getAlgorithmRelationID = findUserAlgorthmRelation[0].algorithm_id;
+      const getResult = await this.algorithmService.getAlgorithmById(
+        Number(getAlgorithmRelationID)
+      );
+      if (!getResult) {
+        this.logger.info('算法ID不存在');
+        return;
+      }
+      algorithm_id = getResult.algorithm_id;
     }
 
     const algorithmSocketID = await this.redisService.hget(
-      'algorithm' + findUserAlgorthmRelation[0].algorithm_id.toString(),
+      'algorithm' + algorithm_id,
       'socketID'
     );
 
