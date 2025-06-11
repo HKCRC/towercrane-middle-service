@@ -67,8 +67,17 @@ export class SocketIOService {
   }
 
   private setupConnectionHandlers() {
-    this.io.on('connection', (socket: Socket) => {
-      console.log(`Client connected: ${socket.id}`);
+    this.io.on('connection', async (socket: Socket) => {
+      const userID = socket.handshake.auth.userID;
+      console.log(`Client connected: ${socket.id}`, userID);
+
+      if (userID) {
+        await this.objectInsert(socket.id, { type: 'client', id: userID });
+        await this.objectInsert('user' + userID, {
+          status: 'online',
+          socketID: socket.id,
+        });
+      }
 
       // 注册事件处理器
       Object.entries(this.eventHandlers).forEach(([eventName, handler]) => {
@@ -113,8 +122,11 @@ export class SocketIOService {
   private async clientExitHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
-      console.log('data', parseData);
-      await this.handleUserOfflineStatus(parseData.userID, this.io);
+      if (!parseData?.userID) {
+        this.logger.error('clientExitHandler Error:', 'userID is undefined');
+        return;
+      }
+      await this.handleUserOfflineStatus(parseData?.userID, this.io);
       await this.redisService.hset(
         'user' + parseData.userID,
         'status',
@@ -140,6 +152,13 @@ export class SocketIOService {
       try {
         await this.acquireLockWithRetry(lockKey, 50000); // 锁定50秒
 
+        if (!parseData.userID || !parseData.towercraneID) {
+          this.logger.error(
+            'clientReassignAlgorithmHandler Error:',
+            'userID or towercraneID is undefined'
+          );
+          return;
+        }
         // 检查当前用户是否已有分配关系
         const existedRelationByID =
           await this.userAlgorithmRelationService.getRelationByUserId(
@@ -174,13 +193,19 @@ export class SocketIOService {
   private async clientRequestAlgorithmHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
-      console.log('data', parseData, parseData.algorithmID);
-      const algorithmID = parseData.algorithmID.toString();
-
+      const algorithmID = parseData?.algorithmID.toString();
       const lockKey = `lock:request:${algorithmID}`;
 
       try {
         await this.acquireLockWithRetry(lockKey, 50000); // 锁定50秒
+
+        if (!parseData.userID || !parseData.algorithmID) {
+          this.logger.error(
+            'clientRequestAlgorithmHandler Error:',
+            'userID or algorithmID is undefined'
+          );
+          return;
+        }
 
         // 检查当前算法是否已有分配关系
         const result =
@@ -206,7 +231,7 @@ export class SocketIOService {
           'user' + result[0].user_id.toString(),
           'status'
         );
-        console.log('userStatus', userStatus);
+
         if (userStatus === 'offline') {
           await this.userAlgorithmRelationService.updateRelation(
             parseData.userID,
@@ -275,6 +300,13 @@ export class SocketIOService {
   }
 
   private async handleUserOfflineStatus(userID: string, io: Server) {
+    if (!userID) {
+      this.logger.error(
+        'handleUserOfflineStatus Error:',
+        'userID is undefined'
+      );
+      return;
+    }
     const existedRelationID =
       await this.userAlgorithmRelationService.getRelationByUserId(userID);
     if (existedRelationID.length === 0) {
@@ -294,6 +326,13 @@ export class SocketIOService {
   }
 
   private async handleClientStatusUpdate(algorithmID: string, io: Server) {
+    if (!algorithmID) {
+      this.logger.error(
+        'handleClientStatusUpdate Error:',
+        'algorithmID is undefined'
+      );
+      return;
+    }
     const existedUserID =
       await this.userAlgorithmRelationService.getRelationByAlgorithmId(
         algorithmID
@@ -337,8 +376,9 @@ export class SocketIOService {
   private async serverRegisterHandler(socket: Socket, data: any) {
     try {
       const parserData = JSON.parse(data);
+
       const existedID = await this.algorithmService.getAlgorithmByName(
-        parserData.name
+        parserData?.name
       );
       await this.handleClientStatusUpdate(existedID, this.io);
       if (existedID) {
@@ -362,7 +402,7 @@ export class SocketIOService {
           socketID: socket.id,
         });
 
-        console.log('服务端已注册:', existedID, result);
+        this.logger.info('服务端已注册:', existedID, result);
       } else {
         const algorithm = {
           name: data.name,
@@ -380,7 +420,7 @@ export class SocketIOService {
           status: 'online',
           socketID: socket.id,
         });
-        console.log('收到服务端注册消息:', algorithm);
+        this.logger.info('收到服务端注册消息:', algorithm);
       }
     } catch (e) {
       this.logger.error('serverRegisterHandler Error:', e);
@@ -388,8 +428,16 @@ export class SocketIOService {
   }
 
   private async serverMsgHandler(socket: Socket, data: any) {
-    this.logger.info('收到服务端消息:', data);
+    this.logger.info('收到向服务端发送的消息:', data);
     const algorithmID = await this.redisService.hget(socket.id, 'id');
+    console.log('socket.id', socket.id);
+    if (!algorithmID) {
+      this.logger.error(
+        'serverMsgHandler Error:',
+        'serverMsgHandler algorithmID is undefined'
+      );
+      return;
+    }
     try {
       const result =
         await this.userAlgorithmRelationService.getRelationByAlgorithmId(
@@ -397,17 +445,18 @@ export class SocketIOService {
         );
       if (result.length === 0) {
         const message = parseBinaryData(data);
-        this.logger.info('message:', message);
+        this.logger.info('message after parseBinaryData:', message);
         return;
       }
       const userSocketID = await this.redisService.hget(
         'user' + result[0].user_id.toString(),
         'socketID'
       );
-      this.logger.info('result', result);
+      // this.logger.info('result', result);
       // 向当前客户端发送响应, 此种私有信息的发送是根据socket.id进行的, 因为Socket.io会自动创建一个名为连接的
       // socket.id的房间, 所以可以直接使用socket.id来发送私有消息. 而在Redis中则需要保存此次连接过程中的socket.id
       // 和userID的对应关系, 以便后续的消息发送. 服务端的也类似
+      console.error('userSocketID', userSocketID);
       socket.to(userSocketID).emit(SOCKET_EVENT.CLIENT_MSG, data);
       this.sendToClient(userSocketID, SOCKET_EVENT.SERVER_MSG, data);
     } catch (e) {
@@ -419,8 +468,6 @@ export class SocketIOService {
     try {
       const stringKey = typeof key === 'string' ? key : key.toString();
       for (const [field, value] of Object.entries(obj)) {
-        console.log('field:', field);
-        console.log('value:', value);
         let stringValue;
         if (value === null || value === undefined) {
           stringValue = ''; // 将 null 或 undefined 转换为空字符串
@@ -442,24 +489,13 @@ export class SocketIOService {
       return;
     }
 
-    let algorithm_id = null;
     const findUserAlgorthmRelation =
       await this.userAlgorithmRelationService.getRelationByUserId(userId);
     if (!findUserAlgorthmRelation.length) {
       this.logger.info('对应关系不存在');
       return;
-    } else {
-      const getAlgorithmRelationID = findUserAlgorthmRelation[0].algorithm_id;
-      const getResult = await this.algorithmService.getAlgorithmById(
-        Number(getAlgorithmRelationID)
-      );
-      if (!getResult) {
-        this.logger.info('算法ID不存在');
-        return;
-      }
-      algorithm_id = getResult.algorithm_id;
     }
-
+    const algorithm_id = findUserAlgorthmRelation[0].algorithm_id;
     const algorithmSocketID = await this.redisService.hget(
       'algorithm' + algorithm_id,
       'socketID'

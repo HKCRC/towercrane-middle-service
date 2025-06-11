@@ -17,11 +17,11 @@ export class APIController {
 
   @Post('/login')
   async login(
-    @Body('email') email: string,
+    @Body('phoneNumber') phoneNumber: string,
     @Body('password') password: string
   ) {
     try {
-      const user = await this.adminService.login(email, password);
+      const user = await this.adminService.login(phoneNumber, password);
       const userResult = {
         access_token: user.token,
         refresh_token: user.longToken,
@@ -46,6 +46,13 @@ export class APIController {
   ) {
     try {
       const userPsw = password;
+      if (!phoneNumber.length || !password.length) {
+        return {
+          success: false,
+          message: 'invalid phone number or password',
+          data: undefined,
+        };
+      }
       const user = await this.adminService.register(phoneNumber, password);
 
       if (user.id && user.phoneNumber) {

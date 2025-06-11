@@ -10,10 +10,10 @@ export class AdminService {
   @Inject()
   jwt: JwtService;
 
-  async login(phoneNumber: string, password: string) {
+  async login(userId: string, password: string) {
     const user = await PrismaService.user.findFirst({
       where: {
-        phoneNumber: phoneNumber,
+        phoneNumber: userId,
       },
     });
 
