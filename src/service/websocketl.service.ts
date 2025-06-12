@@ -69,7 +69,6 @@ export class SocketIOService {
   private setupConnectionHandlers() {
     this.io.on('connection', async (socket: Socket) => {
       const userID = socket.handshake.auth.userID;
-      console.log(`Client connected: ${socket.id}`, userID);
 
       if (userID) {
         await this.objectInsert(socket.id, { type: 'client', id: userID });
@@ -145,7 +144,6 @@ export class SocketIOService {
   private async clientReassignAlgorithmHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
-      console.log('Reassigning algorithm:', parseData);
 
       const lockKey = `lock:reassign:${parseData.towercraneID}`;
 
@@ -174,7 +172,7 @@ export class SocketIOService {
           parseData.userID,
           parseData.towercraneID
         );
-        if (result.id) {
+        if (result.id && parseData?.towercraneID) {
           socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'success');
           await this.handleClientStatusUpdate(parseData.towercraneID, this.io);
         } else {
@@ -217,9 +215,9 @@ export class SocketIOService {
             parseData.userID,
             algorithmID
           );
-          if (result.id) {
+          if (result.id && parseData?.algorithmID) {
             socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'success');
-            await this.handleClientStatusUpdate(data.algorithmID, this.io);
+            await this.handleClientStatusUpdate(parseData.algorithmID, this.io);
           } else {
             socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
           }
@@ -228,16 +226,22 @@ export class SocketIOService {
 
         // 若算法已被分配，检查当前分配用户的状态
         const userStatus = await this.redisService.hget(
-          'user' + result[0].user_id.toString(),
+          `user${result?.[0]?.user_id?.toString()}`,
           'status'
         );
 
-        if (userStatus === 'offline') {
+        // 如果离线才分配
+        if (
+          userStatus === 'offline' &&
+          parseData?.userID &&
+          parseData?.algorithmID
+        ) {
           await this.userAlgorithmRelationService.updateRelation(
             parseData.userID,
             parseData.algorithmID
           );
           socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'success');
+
           await this.handleClientStatusUpdate(parseData.algorithmID, this.io);
         } else {
           socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
@@ -322,6 +326,7 @@ export class SocketIOService {
     const stringMessage = JSON.stringify({
       [algorithmID]: 'disconnected',
     });
+
     io.emit(SOCKET_EVENT.SERVER_STATUS_NOTIFY, stringMessage);
   }
 
@@ -380,7 +385,11 @@ export class SocketIOService {
       const existedID = await this.algorithmService.getAlgorithmByName(
         parserData?.name
       );
-      await this.handleClientStatusUpdate(existedID, this.io);
+
+      if (existedID) {
+        await this.handleClientStatusUpdate(existedID, this.io);
+      }
+
       if (existedID) {
         const algorithm = {
           name: data.name,
@@ -430,7 +439,7 @@ export class SocketIOService {
   private async serverMsgHandler(socket: Socket, data: any) {
     this.logger.info('收到向服务端发送的消息:', data);
     const algorithmID = await this.redisService.hget(socket.id, 'id');
-    console.log('socket.id', socket.id);
+
     if (!algorithmID) {
       this.logger.error(
         'serverMsgHandler Error:',
@@ -456,7 +465,7 @@ export class SocketIOService {
       // 向当前客户端发送响应, 此种私有信息的发送是根据socket.id进行的, 因为Socket.io会自动创建一个名为连接的
       // socket.id的房间, 所以可以直接使用socket.id来发送私有消息. 而在Redis中则需要保存此次连接过程中的socket.id
       // 和userID的对应关系, 以便后续的消息发送. 服务端的也类似
-      console.error('userSocketID', userSocketID);
+
       socket.to(userSocketID).emit(SOCKET_EVENT.CLIENT_MSG, data);
       this.sendToClient(userSocketID, SOCKET_EVENT.SERVER_MSG, data);
     } catch (e) {
@@ -528,26 +537,24 @@ export class SocketIOService {
   private async acquireLockWithRetry(
     lockKey: string,
     ttl: number,
-    maxRetries = 10,
+    maxRetries = 3,
     retryDelay = 200
-  ) {
+  ): Promise<string | null> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const result = await this.redisService.set(
-        lockKey,
-        'locked',
-        'PX',
-        ttl,
-        'NX'
-      );
+      try {
+        const setResult = await this.redisService.setnx(lockKey, 'locked');
 
-      if (result === 'OK') {
-        console.log(`Lock acquired: ${lockKey} (attempt ${attempt})`);
-        return lockKey;
-      }
+        if (setResult === 1) {
+          console.log(`Lock acquired: ${lockKey} (attempt ${attempt})`);
+          return lockKey;
+        }
 
-      console.warn(`Failed to acquire lock: ${lockKey} (attempt ${attempt})`);
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, retryDelay)); // 等待一段时间后重试
+        console.warn(`Failed to acquire lock: ${lockKey} (attempt ${attempt})`);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay)); // 等待一段时间后重试
+        }
+      } catch (error) {
+        this.logger.error('acquireLockWithRetry Error:', error);
       }
     }
   }
