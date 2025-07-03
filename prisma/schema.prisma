@@ -34,6 +34,7 @@ model User {
   enable      Boolean  @default(true)
   place_id    String   @default("")
   createdAt   DateTime @default(now())
+  user_name   String   @default("塔吊员")
 }
 
 // 算法信息

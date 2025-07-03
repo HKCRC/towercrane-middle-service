@@ -9,6 +9,7 @@ import { parseBinaryData } from '@/utils/message';
 import { AlgorithmService } from './algorithm.service';
 import { v4 as uuidv4 } from 'uuid';
 import { AlgorithmStatus } from '@/types';
+
 interface SocketEventHandlers {
   [eventName: string]: (socket: Socket, data: any) => void;
 }
@@ -115,7 +116,33 @@ export class SocketIOService {
       socket.on(SOCKET_EVENT.CLIENT_EXIT, async (data: any) => {
         this.clientExitHandler(socket, data);
       });
+      socket.on(SOCKET_EVENT.CLIENT_LOCATION, async (data: any) => {
+        this.clientLocationHandler(socket, data);
+      });
     });
+  }
+
+  private async clientLocationHandler(socket: Socket, data: any) {
+    console.log('收到客户端位置消息:', data);
+    try {
+      const parseData = JSON.parse(data);
+      if (!parseData?.userID) {
+        this.logger.error(
+          'clientLocationHandler Error:',
+          'userID is undefined'
+        );
+        return;
+      }
+      const { userID, location, place_id } = parseData;
+      await this.redisService.hset(
+        `user-position-${place_id}`,
+        userID,
+        JSON.stringify(location)
+      );
+      this.logger.info('收到客户端位置消息:', JSON.stringify(parseData));
+    } catch (error) {
+      this.logger.error('clientLocationHandler Error:', error);
+    }
   }
 
   private async clientExitHandler(socket: Socket, data: any) {

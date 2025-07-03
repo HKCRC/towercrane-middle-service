@@ -46,15 +46,37 @@ export class AdminService {
   }
 
   async register(phoneNumber: string, password: string) {
-    const hashedPassword = await PasswordService.hashPassword(password);
+    try {
+      // Check if user already exists
+      const existingUser = await PrismaService.user.findFirst({
+        where: {
+          phoneNumber: phoneNumber,
+        },
+      });
 
-    return await PrismaService.user.create({
-      data: {
-        phoneNumber: phoneNumber,
-        uid: uuidv4(),
-        password: hashedPassword,
-        role: UserRole.USER,
-      },
-    });
+      if (existingUser) {
+        throw new Error('用户已存在');
+      }
+
+      const hashedPassword = await PasswordService.hashPassword(password);
+
+      const user = await PrismaService.user.create({
+        data: {
+          user_name: '塔吊员',
+          phoneNumber: phoneNumber,
+          uid: uuidv4(),
+          password: hashedPassword,
+          role: UserRole.USER,
+          place_id: '',
+        },
+      });
+      return user;
+    } catch (error) {
+      console.error(error);
+      if (error.message === '用户已存在') {
+        throw error;
+      }
+      throw new Error('注册失败');
+    }
   }
 }
