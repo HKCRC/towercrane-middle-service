@@ -2,11 +2,11 @@ import { Server, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { ServerOptions } from 'socket.io';
 import { ILogger, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
-import { UserAlgorithmRelationService } from './userAlgorithmRelation.service';
 import { RedisService } from '@midwayjs/redis';
 import { BINARY_FLAG, SOCKET_EVENT } from '@/constant';
 import { parseBinaryData } from '@/utils/message';
 import { AlgorithmService } from './algorithm.service';
+import { RedisExpirationService } from './redis-expiration.service';
 import { v4 as uuidv4 } from 'uuid';
 import { AlgorithmStatus } from '@/types';
 
@@ -22,10 +22,10 @@ export class SocketIOService {
   private eventHandlers: SocketEventHandlers = {};
 
   @Inject()
-  private userAlgorithmRelationService: UserAlgorithmRelationService;
+  private algorithmService: AlgorithmService;
 
   @Inject()
-  private algorithmService: AlgorithmService;
+  private redisExpirationService: RedisExpirationService;
 
   @Inject()
   logger: ILogger;
@@ -59,12 +59,73 @@ export class SocketIOService {
     // 设置连接事件处理
     this.setupConnectionHandlers();
 
+    // 初始化Redis过期事件服务
+    await this.setupRedisExpirationService();
+
     return new Promise<void>(resolve => {
       this.server.listen(port, () => {
         console.log(`Socket.io server started on port ${port}`);
         resolve();
       });
     });
+  }
+
+  /**
+   * 设置Redis过期事件服务
+   */
+  private async setupRedisExpirationService(): Promise<void> {
+    try {
+      // 初始化Redis过期服务
+      await this.redisExpirationService.initialize();
+
+      // 设置Socket.IO实例
+      this.redisExpirationService.setSocketIO(this.io);
+
+      // 注册算法控制权过期处理
+      this.redisExpirationService.registerExpirationHandler({
+        keyPattern: 'algorithm-',
+        keyType: 'algorithm_control',
+        callback: async (
+          expiredKey: string,
+          keyType: string,
+          algorithmId: string
+        ) => {
+          await this.handleAlgorithmControlExpired(algorithmId);
+        },
+      });
+
+      this.logger.info('Redis expiration service setup complete');
+    } catch (error) {
+      this.logger.error('Failed to setup Redis expiration service:', error);
+    }
+  }
+
+  /**
+   * 处理算法控制权过期
+   */
+  private async handleAlgorithmControlExpired(
+    algorithmId: string
+  ): Promise<void> {
+    this.logger.info(
+      `Handling algorithm control expiration for: ${algorithmId}`
+    );
+
+    // 使用Redis过期服务发送通知
+    await this.redisExpirationService.notifyAlgorithmControlExpired(
+      algorithmId
+    );
+
+    // 可以添加其他业务逻辑，如更新数据库状态等
+    try {
+      await this.algorithmService.updateAlgorithm(algorithmId, {
+        status: AlgorithmStatus.IDLE,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to update algorithm status for ${algorithmId}:`,
+        error
+      );
+    }
   }
 
   private setupConnectionHandlers() {
@@ -133,11 +194,15 @@ export class SocketIOService {
         );
         return;
       }
-      const { userID, location, place_id } = parseData;
+      const { userID, location, place_id, userInfo } = parseData;
+      const insertLocationAndUserInfo = {
+        ...location,
+        ...userInfo,
+      };
       await this.redisService.hset(
         `user-position-${place_id}`,
         userID,
-        JSON.stringify(location)
+        JSON.stringify(insertLocationAndUserInfo)
       );
       this.logger.info('收到客户端位置消息:', JSON.stringify(parseData));
     } catch (error) {
@@ -145,23 +210,35 @@ export class SocketIOService {
     }
   }
 
+  // 用户退出
   private async clientExitHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
+
       if (!parseData?.userID) {
         this.logger.error('clientExitHandler Error:', 'userID is undefined');
         return;
       }
+
       await this.handleUserOfflineStatus(parseData?.userID, this.io);
+
       await this.redisService.hset(
         'user' + parseData.userID,
         'status',
         'offline'
       );
-      await this.userAlgorithmRelationService.deleteRelationByUserId(
-        parseData.userID
-      );
+      if (parseData?.userPlaceID) {
+        await this.redisService.hdel(
+          `user-position-${parseData?.userPlaceID}`,
+          parseData.userID
+        );
+      }
 
+      // 释放用户占用的算法资源
+      const algorithmID = await this.getAlgorithmByUserId(parseData.userID);
+      if (algorithmID) {
+        await this.deleteAlgorithmUserRelation(algorithmID, parseData.userID);
+      }
       socket.disconnect();
     } catch (e) {
       this.logger.error('clientExitHandler Error:', e);
@@ -185,21 +262,20 @@ export class SocketIOService {
           return;
         }
         // 检查当前用户是否已有分配关系
-        const existedRelationByID =
-          await this.userAlgorithmRelationService.getRelationByUserId(
-            parseData.userID
-          );
-        if (existedRelationByID.length > 0) {
+        const existedRelationByID = await this.redisService.get(
+          `algorithm-${parseData.towercraneID}`
+        );
+        if (existedRelationByID && existedRelationByID !== parseData.userID) {
           socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'fail');
           return;
         }
 
         // 因为权限指派的前提必须是当前用户占有该塔吊的控制权限，所以无需检查当前塔机是否已有分配关系
-        const result = await this.userAlgorithmRelationService.updateRelation(
-          parseData.userID,
-          parseData.towercraneID
+        const setResult = await this.setAlgorithmUserRelation(
+          parseData.towercraneID,
+          parseData.userID
         );
-        if (result.id && parseData?.towercraneID) {
+        if (setResult) {
           socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'success');
           await this.handleClientStatusUpdate(parseData.towercraneID, this.io);
         } else {
@@ -207,11 +283,13 @@ export class SocketIOService {
         }
       } catch (error) {
         this.logger.error('clientReassignAlgorithmHandler Error:', error);
+        socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'fail');
       } finally {
         await this.releaseLock(lockKey);
       }
     } catch (e) {
       this.logger.error('clientReassignAlgorithmHandler Error:', e);
+      socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'fail');
     }
   }
 
@@ -232,54 +310,34 @@ export class SocketIOService {
           return;
         }
 
-        // 检查当前算法是否已有分配关系
-        const result =
-          await this.userAlgorithmRelationService.getRelationByAlgorithmId(
-            algorithmID
+        // 检查当前塔吊是否已有被分配关系
+        const result = await this.redisService.get(`algorithm-${algorithmID}`);
+        if (result === null || result === undefined) {
+          // 使用新的双向关系设置方法
+          const setResult = await this.setAlgorithmUserRelation(
+            algorithmID,
+            parseData.userID
           );
-        if (result.length === 0) {
-          const result = await this.userAlgorithmRelationService.createRelation(
-            parseData.userID,
-            algorithmID
-          );
-          if (result.id && parseData?.algorithmID) {
+          if (setResult) {
             socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'success');
             await this.handleClientStatusUpdate(parseData.algorithmID, this.io);
           } else {
             socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
           }
           return;
-        }
-
-        // 若算法已被分配，检查当前分配用户的状态
-        const userStatus = await this.redisService.hget(
-          `user${result?.[0]?.user_id?.toString()}`,
-          'status'
-        );
-
-        // 如果离线才分配
-        if (
-          userStatus === 'offline' &&
-          parseData?.userID &&
-          parseData?.algorithmID
-        ) {
-          await this.userAlgorithmRelationService.updateRelation(
-            parseData.userID,
-            parseData.algorithmID
-          );
-          socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'success');
-
-          await this.handleClientStatusUpdate(parseData.algorithmID, this.io);
         } else {
+          // 已被占用，返回失败
           socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
         }
       } catch (error) {
         this.logger.error('clientRequestAlgorithmHandler Error:', error);
+        socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
       } finally {
         await this.releaseLock(lockKey);
       }
     } catch (e) {
       this.logger.error('clientRequestAlgorithmHandler Error:', e);
+      socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
     }
   }
 
@@ -292,6 +350,7 @@ export class SocketIOService {
     }
   }
 
+  // 算法端断开
   private async disconnectHandler(socket: Socket) {
     try {
       const socketData = await this.redisService.hgetall(socket.id);
@@ -301,9 +360,15 @@ export class SocketIOService {
         await this.algorithmService.updateAlgorithm(socketData.id, {
           status: AlgorithmStatus.IDLE,
         });
-        await this.userAlgorithmRelationService.deleteRelationByAlgorithmId(
-          socketData.id
+
+        // 清理算法相关的Redis数据
+        const currentUserId = await this.redisService.get(
+          `algorithm-${socketData.id}`
         );
+        if (currentUserId) {
+          await this.deleteAlgorithmUserRelation(socketData.id, currentUserId);
+        }
+
         await this.redisService.del(socket.id);
         await this.redisService.hset(
           'algorithm' + socketData.id,
@@ -319,9 +384,12 @@ export class SocketIOService {
           'status',
           'offline'
         );
-        await this.userAlgorithmRelationService.deleteRelationByUserId(
-          socketData.id
-        );
+
+        // 清理用户占用的算法资源
+        const algorithmID = await this.getAlgorithmByUserId(socketData.id);
+        if (algorithmID) {
+          await this.deleteAlgorithmUserRelation(algorithmID, socketData.id);
+        }
 
         this.logger.info('用户断开:', socket.id);
       }
@@ -330,7 +398,11 @@ export class SocketIOService {
     }
   }
 
-  private async handleUserOfflineStatus(userID: string, io: Server) {
+  private async handleUserOfflineStatus(
+    userID: string,
+    io: Server,
+    algorithmID?: string
+  ) {
     if (!userID) {
       this.logger.error(
         'handleUserOfflineStatus Error:',
@@ -338,15 +410,94 @@ export class SocketIOService {
       );
       return;
     }
-    const existedRelationID =
-      await this.userAlgorithmRelationService.getRelationByUserId(userID);
-    if (existedRelationID.length === 0) {
+
+    // 如果没有传入algorithmID，尝试通过userID反向查找
+    if (!algorithmID) {
+      algorithmID = await this.findAlgorithmByUserId(userID);
+    }
+
+    if (!algorithmID) {
+      return;
+    }
+
+    const existedRelationID = await this.redisService.get(
+      `algorithm-${algorithmID}`
+    );
+    if (!existedRelationID) {
       return;
     }
     const stringMessage = JSON.stringify({
-      [existedRelationID[0].algorithm_id]: 'free',
+      [algorithmID]: 'free',
     });
     io.emit(SOCKET_EVENT.CLIENT_STATUS_NOTIFY, stringMessage);
+  }
+
+  // 添加反向查找方法
+  public async findAlgorithmByUserId(userId: string): Promise<string | null> {
+    try {
+      const keys = await this.redisService.keys('algorithm-*');
+
+      for (const key of keys) {
+        const value = await this.redisService.get(key);
+        if (value === userId) {
+          // 提取algorithm ID
+          const algorithmId = key.replace('algorithm-', '');
+          return algorithmId;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error('findAlgorithmByUserId Error:', error);
+      return null;
+    }
+  }
+
+  // 改进的设置关系方法（带反向索引）
+  public async setAlgorithmUserRelation(
+    algorithmId: string,
+    userId: string
+  ): Promise<boolean> {
+    try {
+      const pipeline = this.redisService.pipeline();
+
+      // 正向关系：algorithm-{algorithmId} -> userId
+      pipeline.set(`algorithm-${algorithmId}`, userId, 'EX', 60 * 60);
+
+      // 反向关系：使用不同前缀避免冲突
+      pipeline.set(`userctrl-${userId}`, algorithmId, 'EX', 60 * 60);
+
+      const results = await pipeline.exec();
+      return results.every(result => result[1] === 'OK');
+    } catch (error) {
+      this.logger.error('setAlgorithmUserRelation Error:', error);
+      return false;
+    }
+  }
+
+  // 通过userId快速查找algorithmId（使用反向索引）
+  public async getAlgorithmByUserId(userId: string): Promise<string | null> {
+    try {
+      return await this.redisService.get(`userctrl-${userId}`);
+    } catch (error) {
+      this.logger.error('getAlgorithmByUserId Error:', error);
+      return null;
+    }
+  }
+
+  // 删除关系时同时删除两个方向的key
+  public async deleteAlgorithmUserRelation(
+    algorithmId: string,
+    userId: string
+  ): Promise<void> {
+    try {
+      const pipeline = this.redisService.pipeline();
+      pipeline.del(`algorithm-${algorithmId}`);
+      pipeline.del(`userctrl-${userId}`);
+      await pipeline.exec();
+    } catch (error) {
+      this.logger.error('deleteAlgorithmUserRelation Error:', error);
+    }
   }
 
   private async handleAlgorithmOfflineStatus(algorithmID: string, io: Server) {
@@ -365,42 +516,49 @@ export class SocketIOService {
       );
       return;
     }
-    const existedUserID =
-      await this.userAlgorithmRelationService.getRelationByAlgorithmId(
-        algorithmID
-      );
+    const existedUserID = await this.redisService.get(
+      `algorithm-${algorithmID}`
+    );
     const keys = await this.redisService.keys('user*');
 
     for (const key of keys) {
-      const value = await this.redisService.hgetall(key);
-      if (value['status'] === 'online' && existedUserID.length === 0) {
-        const stringMessage = JSON.stringify({
-          [algorithmID]: 'free',
-        });
-        io.to(value['socketID']).emit(
-          SOCKET_EVENT.SERVER_STATUS_NOTIFY,
-          stringMessage
+      try {
+        const value = await this.redisService.hgetall(key);
+        if (value['status'] === 'online' && !existedUserID) {
+          const stringMessage = JSON.stringify({
+            [algorithmID]: 'free',
+          });
+          io.to(value['socketID']).emit(
+            SOCKET_EVENT.SERVER_STATUS_NOTIFY,
+            stringMessage
+          );
+        } else if (
+          value['status'] === 'online' &&
+          existedUserID &&
+          key.toString() === `user${existedUserID}`
+        ) {
+          const stringMessage = JSON.stringify({
+            [algorithmID]: 'using',
+          });
+          io.to(value['socketID']).emit(
+            SOCKET_EVENT.SERVER_STATUS_NOTIFY,
+            stringMessage
+          );
+        } else if (value['status'] === 'online' && existedUserID.length > 0) {
+          const stringMessage = JSON.stringify({
+            [algorithmID]: 'occupied',
+          });
+          io.to(value['socketID']).emit(
+            SOCKET_EVENT.SERVER_STATUS_NOTIFY,
+            stringMessage
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Skipping key ${key} due to type mismatch:`,
+          error.message
         );
-      } else if (
-        value['status'] === 'online' &&
-        existedUserID.length > 0 &&
-        key.toString() === `user${existedUserID[0].user_id}`
-      ) {
-        const stringMessage = JSON.stringify({
-          [algorithmID]: 'using',
-        });
-        io.to(value['socketID']).emit(
-          SOCKET_EVENT.SERVER_STATUS_NOTIFY,
-          stringMessage
-        );
-      } else if (value['status'] === 'online' && existedUserID.length > 0) {
-        const stringMessage = JSON.stringify({
-          [algorithmID]: 'occupied',
-        });
-        io.to(value['socketID']).emit(
-          SOCKET_EVENT.SERVER_STATUS_NOTIFY,
-          stringMessage
-        );
+        continue;
       }
     }
   }
@@ -463,6 +621,7 @@ export class SocketIOService {
     }
   }
 
+  // 向当前使用着的用户发送消息
   private async serverMsgHandler(socket: Socket, data: any) {
     this.logger.info('收到向服务端发送的消息:', data);
     const algorithmID = await this.redisService.hget(socket.id, 'id');
@@ -475,17 +634,14 @@ export class SocketIOService {
       return;
     }
     try {
-      const result =
-        await this.userAlgorithmRelationService.getRelationByAlgorithmId(
-          algorithmID
-        );
-      if (result.length === 0) {
+      const result = await this.redisService.get(`algorithm-${algorithmID}`);
+      if (!result) {
         const message = parseBinaryData(data);
         this.logger.info('message after parseBinaryData:', message);
         return;
       }
       const userSocketID = await this.redisService.hget(
-        'user' + result[0].user_id.toString(),
+        'user' + result.toString(),
         'socketID'
       );
       // this.logger.info('result', result);
@@ -525,13 +681,12 @@ export class SocketIOService {
       return;
     }
 
-    const findUserAlgorthmRelation =
-      await this.userAlgorithmRelationService.getRelationByUserId(userId);
-    if (!findUserAlgorthmRelation.length) {
+    const findUserAlgorthmRelation = await this.getAlgorithmByUserId(userId);
+    if (!findUserAlgorthmRelation) {
       this.logger.info('对应关系不存在');
       return;
     }
-    const algorithm_id = findUserAlgorthmRelation[0].algorithm_id;
+    const algorithm_id = findUserAlgorthmRelation;
     const algorithmSocketID = await this.redisService.hget(
       'algorithm' + algorithm_id,
       'socketID'
@@ -569,9 +724,16 @@ export class SocketIOService {
   ): Promise<string | null> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const setResult = await this.redisService.setnx(lockKey, 'locked');
+        // 使用SET命令的NX和EX选项，原子性地设置锁和TTL
+        const setResult = await this.redisService.set(
+          lockKey,
+          'locked',
+          'EX',
+          Math.floor(ttl / 1000), // 转换为秒
+          'NX'
+        );
 
-        if (setResult === 1) {
+        if (setResult === 'OK') {
           console.log(`Lock acquired: ${lockKey} (attempt ${attempt})`);
           return lockKey;
         }
@@ -584,6 +746,7 @@ export class SocketIOService {
         this.logger.error('acquireLockWithRetry Error:', error);
       }
     }
+    return null;
   }
 
   /**
@@ -640,6 +803,13 @@ export class SocketIOService {
   }
 
   /**
+   * 获取Redis过期服务状态
+   */
+  public getExpirationServiceStats() {
+    return this.redisExpirationService.getExpirationStats();
+  }
+
+  /**
    * 关闭 Socket.io 服务器
    */
   public close(): Promise<void> {
@@ -649,8 +819,16 @@ export class SocketIOService {
         return resolve();
       }
 
-      this.io.close(() => {
+      this.io.close(async () => {
         console.log('Socket.io server closed');
+
+        // 关闭Redis过期服务
+        try {
+          await this.redisExpirationService.close();
+        } catch (error) {
+          this.logger.error('Error closing Redis expiration service:', error);
+        }
+
         this.io = null;
         this.server = null;
         resolve();

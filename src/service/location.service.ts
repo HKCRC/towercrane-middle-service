@@ -14,7 +14,10 @@ export class LocationService {
       const location = await this.redisService.hgetall(
         `user-position-${place_id}`
       );
-      return location;
+      const locationArray = Object.entries(location).map(([key, value]) => ({
+        [key]: JSON.parse(value),
+      }));
+      return locationArray;
     } catch (error) {
       this.logger.error('getLocation Error:', error);
       return null;

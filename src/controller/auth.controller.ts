@@ -26,6 +26,8 @@ export class APIController {
         access_token: user.token,
         refresh_token: user.longToken,
         uid: user.uid,
+        place_id: user.place_id,
+        user_name: user.user_name,
         phoneNumber: user.phoneNumber,
       };
       return { success: true, message: 'OK', data: userResult };
@@ -64,7 +66,9 @@ export class APIController {
           access_token: getUserResult.token,
           refresh_token: getUserResult.longToken,
           uid: getUserResult.uid,
+          place_id: getUserResult.place_id,
           phoneNumber: user.phoneNumber,
+          user_name: user.user_name,
         };
         return { success: true, message: 'OK', data: userResult };
       } else {

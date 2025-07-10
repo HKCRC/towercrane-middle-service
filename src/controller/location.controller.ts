@@ -9,7 +9,7 @@ export class LocationController {
   @Inject()
   locationService: LocationService;
 
-  @Post('/get-location')
+  @Post('/get-all-user-location')
   async getLocation(@Body('place_id') place_id: string) {
     try {
       const location = await this.locationService.getLocation(place_id);
