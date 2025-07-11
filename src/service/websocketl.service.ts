@@ -254,7 +254,9 @@ export class SocketIOService {
       try {
         await this.acquireLockWithRetry(lockKey, 50000); // 锁定50秒
 
-        if (!parseData.userID || !parseData.towercraneID) {
+        const { assignUserID, currentUserID, towercraneID } = parseData;
+
+        if (!assignUserID || !towercraneID || !currentUserID) {
           this.logger.error(
             'clientReassignAlgorithmHandler Error:',
             'userID or towercraneID is undefined'
@@ -263,21 +265,25 @@ export class SocketIOService {
         }
         // 检查当前用户是否已有分配关系
         const existedRelationByID = await this.redisService.get(
-          `algorithm-${parseData.towercraneID}`
+          `algorithm-${towercraneID}`
         );
-        if (existedRelationByID && existedRelationByID !== parseData.userID) {
+
+        // 如果当前用户不是权限使用人，当然就不能分配权限了
+        if (existedRelationByID && existedRelationByID !== currentUserID) {
           socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'fail');
           return;
         }
 
         // 因为权限指派的前提必须是当前用户占有该塔吊的控制权限，所以无需检查当前塔机是否已有分配关系
         const setResult = await this.setAlgorithmUserRelation(
-          parseData.towercraneID,
-          parseData.userID
+          towercraneID,
+          assignUserID,
+          currentUserID
         );
+        console.log('setResult', setResult);
         if (setResult) {
           socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'success');
-          await this.handleClientStatusUpdate(parseData.towercraneID, this.io);
+          await this.handleClientStatusUpdate(towercraneID, this.io);
         } else {
           socket.emit(SOCKET_EVENT.CLIENT_REASSIGN_ALGORITHM, 'fail');
         }
@@ -365,6 +371,7 @@ export class SocketIOService {
         const currentUserId = await this.redisService.get(
           `algorithm-${socketData.id}`
         );
+
         if (currentUserId) {
           await this.deleteAlgorithmUserRelation(socketData.id, currentUserId);
         }
@@ -377,6 +384,9 @@ export class SocketIOService {
         );
         this.logger.info('算法端断开:', socket.id);
       } else if (socketData && socketData.type === 'client') {
+        const currentUserId = await this.redisService.get(
+          `algorithm-${socketData.id}`
+        );
         await this.handleUserOfflineStatus(socketData.id, this.io);
         await this.redisService.del(socket.id);
         await this.redisService.hset(
@@ -387,9 +397,14 @@ export class SocketIOService {
 
         // 清理用户占用的算法资源
         const algorithmID = await this.getAlgorithmByUserId(socketData.id);
-        if (algorithmID) {
-          await this.deleteAlgorithmUserRelation(algorithmID, socketData.id);
+        if (algorithmID && currentUserId) {
+          await this.deleteAlgorithmUserRelation(algorithmID, currentUserId);
         }
+
+        await this.redisService.hdel(
+          `user-position-${socketData.place_id}`,
+          currentUserId
+        );
 
         this.logger.info('用户断开:', socket.id);
       }
@@ -456,19 +471,71 @@ export class SocketIOService {
   // 改进的设置关系方法（带反向索引）
   public async setAlgorithmUserRelation(
     algorithmId: string,
-    userId: string
+    userId: string,
+    originUserId?: string
   ): Promise<boolean> {
     try {
       const pipeline = this.redisService.pipeline();
+      let expectedResults = 0;
+
+      if (originUserId) {
+        // 删除原用户的控制权
+        pipeline.del(`userctrl-${originUserId}`);
+        expectedResults++; // DEL操作返回数字，不是'OK'
+      }
 
       // 正向关系：algorithm-{algorithmId} -> userId
       pipeline.set(`algorithm-${algorithmId}`, userId, 'EX', 60 * 60);
+      expectedResults++; // SET操作返回'OK'
 
       // 反向关系：使用不同前缀避免冲突
       pipeline.set(`userctrl-${userId}`, algorithmId, 'EX', 60 * 60);
+      expectedResults++; // SET操作返回'OK'
 
       const results = await pipeline.exec();
-      return results.every(result => result[1] === 'OK');
+
+      // 记录详细的执行结果用于调试
+      this.logger.info('Pipeline execution results:', results);
+
+      if (!results || results.length !== expectedResults) {
+        this.logger.error(
+          'Pipeline execution failed or unexpected result count'
+        );
+        return false;
+      }
+
+      // 检查每个操作的结果
+      let success = true;
+      let resultIndex = 0;
+
+      if (originUserId) {
+        // DEL操作：检查是否有错误，返回值是数字(0或1)
+        const delResult = results[resultIndex];
+        if (delResult[0] !== null) {
+          // 有错误
+          this.logger.error('DEL operation failed:', delResult[0]);
+          success = false;
+        }
+        resultIndex++;
+      }
+
+      // SET操作1：algorithm-{algorithmId}
+      const setResult1 = results[resultIndex];
+      if (setResult1[0] !== null || setResult1[1] !== 'OK') {
+        this.logger.error('SET operation 1 failed:', setResult1);
+        success = false;
+      }
+      resultIndex++;
+
+      // SET操作2：userctrl-{userId}
+      const setResult2 = results[resultIndex];
+      if (setResult2[0] !== null || setResult2[1] !== 'OK') {
+        this.logger.error('SET operation 2 failed:', setResult2);
+        success = false;
+      }
+
+      this.logger.info(`setAlgorithmUserRelation result: ${success}`);
+      return success;
     } catch (error) {
       this.logger.error('setAlgorithmUserRelation Error:', error);
       return false;
@@ -492,11 +559,17 @@ export class SocketIOService {
   ): Promise<void> {
     try {
       const pipeline = this.redisService.pipeline();
-      pipeline.del(`algorithm-${algorithmId}`);
-      pipeline.del(`userctrl-${userId}`);
-      await pipeline.exec();
+      const isHaveAccessToAlgorithm = await this.redisService.get(
+        `userctrl-${userId}`
+      );
+      // 如果当前用户正在使用算法，则不删除算法关系
+      if (isHaveAccessToAlgorithm !== '') {
+        pipeline.del(`algorithm-${algorithmId}`);
+        pipeline.del(`userctrl-${userId}`);
+        await pipeline.exec();
+      }
     } catch (error) {
-      this.logger.error('deleteAlgorithmUserRelation Error:', error);
+      this.logger.error('deleteAlgorithmUserRelationError:', error);
     }
   }
 
