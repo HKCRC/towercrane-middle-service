@@ -43,7 +43,7 @@ export class APIController {
       this.ctx.logger.info(e);
       return {
         success: false,
-        message: 'invalid eamil or invalid password',
+        message: '用户名或密码错误',
         data: undefined,
       };
     }

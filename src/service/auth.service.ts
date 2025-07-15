@@ -29,8 +29,11 @@ export class AdminService {
       };
     }
 
-    const getUserStatus = await this.redisService.get(`user${user.uid}`);
-    if (getUserStatus === USER_STATUS.ONLINE) {
+    const getUserStatus = await this.redisService.hget(
+      `user${user.uid}`,
+      'status'
+    );
+    if (getUserStatus && getUserStatus === USER_STATUS.ONLINE) {
       return {
         success: false,
         message: '用户已在线',
@@ -66,7 +69,11 @@ export class AdminService {
         },
       };
     } else {
-      throw new Error('Invalid username or password');
+      return {
+        success: false,
+        message: '用户名或密码错误',
+        data: undefined,
+      };
     }
   }
 

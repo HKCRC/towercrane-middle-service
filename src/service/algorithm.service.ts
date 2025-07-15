@@ -37,7 +37,7 @@ export class AlgorithmService {
       const result = await PrismaService.algorithmInfo.findFirst({
         where: { name },
       });
-      return result.algorithm_id;
+      return result;
     } catch (error) {
       throw new Error('Failed to get algorithm by name');
     }
@@ -56,10 +56,10 @@ export class AlgorithmService {
     }
   }
 
-  async deleteAlgorithm(algorithmId: string) {
+  async deleteAlgorithm(algorithmId: number) {
     try {
       const result = await PrismaService.algorithmInfo.delete({
-        where: { algorithm_id: algorithmId },
+        where: { id: algorithmId },
       });
       return result;
     } catch (error) {
@@ -68,7 +68,7 @@ export class AlgorithmService {
   }
 
   async updateAlgorithm(
-    algorithmId: string,
+    algorithmId: number,
     data: {
       name?: string;
       description?: string;
@@ -78,7 +78,7 @@ export class AlgorithmService {
   ) {
     try {
       const result = await PrismaService.algorithmInfo.update({
-        where: { algorithm_id: algorithmId },
+        where: { id: algorithmId },
         data,
       });
       return result;

@@ -4,7 +4,7 @@ import { ServerOptions } from 'socket.io';
 import { ILogger, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { RedisService } from '@midwayjs/redis';
 import { BINARY_FLAG, SOCKET_EVENT, SPECIAL_STATUS } from '@/constant';
-import { parseBinaryData } from '@/utils/message';
+// import { parseBinaryData } from '@/utils/message';
 import { AlgorithmService } from './algorithm.service';
 import { RedisExpirationService } from './redis-expiration.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -117,7 +117,7 @@ export class SocketIOService {
 
     // 可以添加其他业务逻辑，如更新数据库状态等
     try {
-      await this.algorithmService.updateAlgorithm(algorithmId, {
+      await this.algorithmService.updateAlgorithm(Number(algorithmId), {
         status: AlgorithmStatus.IDLE,
       });
     } catch (error) {
@@ -171,8 +171,8 @@ export class SocketIOService {
           isHaveAlgorithmPermission === null ||
           isHaveAlgorithmPermission === undefined
         ) {
-          this.logger.error('ACCESS DENIED:', '用户没有权限');
-          socket.to(socket.id).emit(SOCKET_EVENT.CLIENT_MSG, {
+          this.logger.error('ACCESS DENIED:', '用户没有权限1');
+          this.io?.to(socket.id).emit(SOCKET_EVENT.CLIENT_MSG, {
             success: false,
             type: 'AccessDenied',
             message: '用户没有权限',
@@ -185,8 +185,8 @@ export class SocketIOService {
         );
 
         if (peggingAlgorithm === null || peggingAlgorithm === undefined) {
-          this.logger.error('ACCESS DENIED:', '用户没有权限');
-          socket.to(socket.id).emit(SOCKET_EVENT.CLIENT_MSG, {
+          this.logger.error('ACCESS DENIED:', '用户没有权限2');
+          this.io?.to(socket.id).emit(SOCKET_EVENT.CLIENT_MSG, {
             success: false,
             type: 'AccessDenied',
             message: '用户没有权限',
@@ -277,20 +277,12 @@ export class SocketIOService {
   private async clientExitHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
-      const { userID } = socket.handshake.auth;
-      console.error('userID', userID);
-      console.error('parseData', parseData);
 
       if (!parseData?.userID) {
         this.logger.error('clientExitHandler Error:', 'userID is undefined');
         return;
       }
 
-      await this.redisService.hset(
-        'user' + parseData.userID,
-        'status',
-        'offline'
-      );
       if (parseData?.userPlaceID) {
         await this.redisService.hdel(
           `user-position-${parseData?.userPlaceID}`,
@@ -432,10 +424,9 @@ export class SocketIOService {
 
       if (socketData && socketData.type === 'algorithm') {
         await this.handleAlgorithmOfflineStatus(socketData.id, this.io);
-        await this.algorithmService.updateAlgorithm(socketData.id, {
+        await this.algorithmService.updateAlgorithm(Number(socketData.id), {
           status: AlgorithmStatus.IDLE,
         });
-
         await this.redisService.del(socket.id);
         await this.redisService.hset(
           'algorithm' + socketData.id,
@@ -446,13 +437,15 @@ export class SocketIOService {
       } else if (socketData && socketData.type === 'client') {
         const currentUserId = socketData.id;
         await this.handleUserOfflineStatus(socketData.id, this.io);
+        await this.redisService.del(`user${socketData.id}`);
         await this.redisService.del(socket.id);
         await this.redisService.hset(
           'user' + socketData.id,
           'status',
           'offline'
         );
-
+        console.log('socketData.place_id', socketData);
+        console.log('currentUserId', currentUserId);
         await this.redisService.hdel(
           `user-position-${socketData.place_id}`,
           currentUserId
@@ -699,51 +692,59 @@ export class SocketIOService {
   private async serverRegisterHandler(socket: Socket, data: any) {
     try {
       const parserData = JSON.parse(data);
+      // id  name
 
-      const existedID = await this.algorithmService.getAlgorithmByName(
-        parserData?.name
-      );
-
-      if (existedID) {
-        await this.handleClientStatusUpdate(existedID, this.io);
+      // 验证必要字段
+      if (!parserData?.name) {
+        this.logger.error('serverRegisterHandler Error: name is required');
+        socket.emit('error', {
+          type: 'INVALID_REGISTRATION_DATA',
+          message: '注册数据缺少必要字段：name',
+          requiredFields: ['name'],
+        });
+        return;
       }
 
-      if (existedID) {
-        const algorithm = {
-          name: data.name,
-          map_name: data.map_name,
-          status: data.status,
-          description: data.description,
-          algorithm_id: existedID,
-        };
-        const result = await this.algorithmService.updateAlgorithm(
-          existedID,
-          algorithm
+      const findAlgorithmResult =
+        await this.algorithmService.getAlgorithmByName(parserData?.name);
+
+      console.log('findAlgorithmResult', findAlgorithmResult);
+
+      if (findAlgorithmResult.id) {
+        await this.handleClientStatusUpdate(
+          findAlgorithmResult.id.toString(),
+          this.io
         );
+      }
+
+      if (findAlgorithmResult.id) {
         await this.objectInsert(socket.id, {
           type: 'algorithm',
-          id: existedID,
+          id: findAlgorithmResult.id,
         });
-        await this.objectInsert('algorithm' + existedID.toString(), {
-          status: 'online',
-          socketID: socket.id,
-        });
+        await this.objectInsert(
+          `algorithm-register-${findAlgorithmResult.id}`,
+          {
+            status: 'online',
+            socketID: socket.id,
+          }
+        );
 
-        this.logger.info('服务端已注册:', existedID, result);
+        this.logger.info('服务端已注册:', findAlgorithmResult.id);
       } else {
         const algorithm = {
-          name: data.name,
-          map_name: data.map_name,
-          status: data.status,
-          description: data.description,
+          name: parserData.name,
+          map_name: parserData.map_name,
+          status: parserData.status,
+          description: parserData.description,
           algorithm_id: uuidv4(),
         };
         const result = await this.algorithmService.createAlgorithm(algorithm);
         await this.objectInsert(socket.id, {
           type: 'algorithm',
-          id: result.algorithm_id,
+          id: result.id,
         });
-        await this.objectInsert('algorithm' + result.algorithm_id, {
+        await this.objectInsert(`algorithm-register-${result.algorithm_id}`, {
           status: 'online',
           socketID: socket.id,
         });
@@ -757,33 +758,51 @@ export class SocketIOService {
   // 向当前使用着的用户发送消息
   private async serverMsgHandler(socket: Socket, data: any) {
     this.logger.info('收到向服务端发送的消息:', data);
-    const algorithmID = await this.redisService.hget(socket.id, 'id');
 
+    const algorithmID = await this.redisService.hget(socket.id, 'id');
     if (!algorithmID) {
       this.logger.error(
         'serverMsgHandler Error:',
-        'serverMsgHandler algorithmID is undefined'
+        'serverMsgHandler algorithmID is undefined - 算法服务端可能未正确注册，请先发送 server-register 事件进行注册'
       );
+
+      // 向算法服务端发送错误响应，提示需要先注册
+      socket.emit('error', {
+        type: 'REGISTRATION_REQUIRED',
+        message: '请先发送 server-register 事件进行注册，然后再发送消息',
+        requiredAction: 'server-register',
+      });
       return;
     }
     try {
-      const result = await this.redisService.get(`algorithm-${algorithmID}`);
-      if (!result) {
-        const message = parseBinaryData(data);
-        this.logger.info('message after parseBinaryData:', message);
-        return;
-      }
-      const userSocketID = await this.redisService.hget(
-        'user' + result.toString(),
-        'socketID'
+      // 只匹配用户状态键，避免匹配到 userctrl- 等其他类型的键
+      const allKeys = await this.redisService.keys('user*');
+      // 过滤掉 userctrl- 开头的键，只保留纯用户状态键
+      const keys = allKeys.filter(
+        key => !key.startsWith('userctrl-') && !key.startsWith('user-')
       );
-      // this.logger.info('result', result);
-      // 向当前客户端发送响应, 此种私有信息的发送是根据socket.id进行的, 因为Socket.io会自动创建一个名为连接的
-      // socket.id的房间, 所以可以直接使用socket.id来发送私有消息. 而在Redis中则需要保存此次连接过程中的socket.id
-      // 和userID的对应关系, 以便后续的消息发送. 服务端的也类似
 
-      socket.to(userSocketID).emit(SOCKET_EVENT.CLIENT_MSG, data);
-      this.sendToClient(userSocketID, SOCKET_EVENT.SERVER_MSG, data);
+      // 这里是临时解决，但是要做消息类型细分，例如操作反馈相关的就不能发给全频道所有人
+      for (const key of keys) {
+        try {
+          const getUser = await this.redisService.hgetall(key);
+          // 向这个工地所有在线的观察者发送消息,如果当前塔吊实控人存在，则发送实控人ID，否则发送空
+          if (getUser['towercraneID'] === algorithmID.toString()) {
+            socket.to(getUser['socketID']).emit(SOCKET_EVENT.CLIENT_MSG, data);
+            this.sendToClient(
+              getUser['socketID'],
+              SOCKET_EVENT.SERVER_MSG,
+              data
+            );
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Skipping key ${key} due to type mismatch:`,
+            error.message
+          );
+          continue;
+        }
+      }
     } catch (e) {
       this.logger.error('serverMsgHandler Error:', e);
     }
@@ -814,14 +833,23 @@ export class SocketIOService {
       return;
     }
 
-    const findUserAlgorthmRelation = await this.getAlgorithmByUserId(userId);
-    if (!findUserAlgorthmRelation) {
-      this.logger.info('对应关系不存在');
+    const findUserAlgorthmRelation = await this.findAlgorithmByUserId(userId);
+
+    if (findUserAlgorthmRelation === null) {
+      this.logger.info('findUserAlgorthmRelation is null');
       return;
     }
-    const algorithm_id = findUserAlgorthmRelation;
+    const getAlgorithm = await this.algorithmService.getAlgorithmById(
+      Number(findUserAlgorthmRelation)
+    );
+
+    if (getAlgorithm?.algorithm_id === undefined) {
+      this.logger.info('getAlgorithm?.algorithm_id is undefined');
+      return;
+    }
+    const algorithm_id = getAlgorithm.algorithm_id;
     const algorithmSocketID = await this.redisService.hget(
-      'algorithm' + algorithm_id,
+      `algorithm${algorithm_id}`,
       'socketID'
     );
 

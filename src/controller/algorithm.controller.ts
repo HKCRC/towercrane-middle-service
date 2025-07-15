@@ -46,7 +46,9 @@ export class AlgorithmController {
   @Post('/:algorithmId')
   async deleteAlgorithm(@Param('algorithmId') algorithmId: string) {
     try {
-      const result = await this.algorithmService.deleteAlgorithm(algorithmId);
+      const result = await this.algorithmService.deleteAlgorithm(
+        Number(algorithmId)
+      );
       return {
         success: true,
         message: 'OK',
@@ -101,7 +103,7 @@ export class AlgorithmController {
   ) {
     try {
       const result = await this.algorithmService.updateAlgorithm(
-        data.algorithm_id,
+        Number(data.algorithm_id),
         data
       );
       return {
