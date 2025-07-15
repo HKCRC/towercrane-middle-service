@@ -22,13 +22,21 @@ export class APIController {
   ) {
     try {
       const user = await this.adminService.login(phoneNumber, password);
+      if (!user.success) {
+        return {
+          success: false,
+          message: user.message,
+          data: undefined,
+        };
+      }
+      const { token, longToken, uid, place_id, user_name } = user.data;
       const userResult = {
-        access_token: user.token,
-        refresh_token: user.longToken,
-        uid: user.uid,
-        place_id: user.place_id,
-        user_name: user.user_name,
-        phoneNumber: user.phoneNumber,
+        access_token: token,
+        refresh_token: longToken,
+        uid,
+        place_id,
+        user_name,
+        phoneNumber: user.data.phoneNumber,
       };
       return { success: true, message: 'OK', data: userResult };
     } catch (e) {
@@ -62,13 +70,22 @@ export class APIController {
           user.phoneNumber,
           userPsw
         );
+        if (!getUserResult.success) {
+          return {
+            success: false,
+            message: getUserResult.message,
+            data: undefined,
+          };
+        }
+        const { token, longToken, uid, place_id, user_name } =
+          getUserResult.data;
         const userResult = {
-          access_token: getUserResult.token,
-          refresh_token: getUserResult.longToken,
-          uid: getUserResult.uid,
-          place_id: getUserResult.place_id,
+          access_token: token,
+          refresh_token: longToken,
+          uid,
+          place_id,
           phoneNumber: user.phoneNumber,
-          user_name: user.user_name,
+          user_name,
         };
         return { success: true, message: 'OK', data: userResult };
       } else {

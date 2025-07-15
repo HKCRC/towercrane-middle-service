@@ -3,12 +3,16 @@ import { PrismaService } from '@/providers/prisma';
 import { JwtService } from '@midwayjs/jwt';
 import { PasswordService } from '@/service/password.service';
 import { v4 as uuidv4 } from 'uuid';
-import { UserRole } from '@/constant';
+import { USER_STATUS, UserRole } from '@/constant';
+import { RedisService } from '@midwayjs/redis';
 
 @Provide()
 export class AdminService {
   @Inject()
   jwt: JwtService;
+
+  @Inject()
+  redisService: RedisService;
 
   async login(userId: string, password: string) {
     const user = await PrismaService.user.findFirst({
@@ -16,6 +20,23 @@ export class AdminService {
         phoneNumber: userId,
       },
     });
+
+    if (!user) {
+      return {
+        success: false,
+        message: '用户不存在',
+        data: undefined,
+      };
+    }
+
+    const getUserStatus = await this.redisService.get(`user${user.uid}`);
+    if (getUserStatus === USER_STATUS.ONLINE) {
+      return {
+        success: false,
+        message: '用户已在线',
+        data: undefined,
+      };
+    }
 
     if (
       user &&
@@ -36,9 +57,13 @@ export class AdminService {
         }
       );
       return {
-        ...user,
-        token: generateJwt,
-        longToken: generateLongJwt,
+        success: true,
+        message: '登录成功',
+        data: {
+          ...user,
+          token: generateJwt,
+          longToken: generateLongJwt,
+        },
       };
     } else {
       throw new Error('Invalid username or password');

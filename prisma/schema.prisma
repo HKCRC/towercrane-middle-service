@@ -39,13 +39,15 @@ model User {
 
 // 算法信息
 model AlgorithmInfo {
-  id           Int      @id @default(autoincrement())
-  algorithm_id String   @unique
-  name         String   @unique
-  description  String
-  map_name     String
-  status       String   @default("idle")
-  createdAt    DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  algorithm_id   String   @unique
+  name           String   @unique
+  description    String
+  map_name       String
+  status         String   @default("idle")
+  createdAt      DateTime @default(now())
+  center_point   String   @default("")
+  algorithm_type String   @default("1") // 1: 平头塔吊 2: 动臂塔吊
 }
 
 // 算法用户关系 一个用户可以关联多个算法
