@@ -26,3 +26,8 @@ export enum USER_STATUS {
 export const SPECIAL_STATUS = {
   FREE: '001',
 };
+
+export enum MESSAGE_TYPE {
+  ALGORITHM_STATUS = 'Algorithm_Status',
+  REQUEST_ALGORITHM = 'Request_Algorithm',
+}

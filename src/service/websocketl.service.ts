@@ -3,7 +3,12 @@ import { Server as HttpServer } from 'http';
 import { ServerOptions } from 'socket.io';
 import { ILogger, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { RedisService } from '@midwayjs/redis';
-import { BINARY_FLAG, SOCKET_EVENT, SPECIAL_STATUS } from '@/constant';
+import {
+  BINARY_FLAG,
+  MESSAGE_TYPE,
+  SOCKET_EVENT,
+  SPECIAL_STATUS,
+} from '@/constant';
 // import { parseBinaryData } from '@/utils/message';
 import { AlgorithmService } from './algorithm.service';
 import { RedisExpirationService } from './redis-expiration.service';
@@ -394,7 +399,51 @@ export class SocketIOService {
           return;
         } else {
           // 已被占用，返回失败
-          socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
+          const currentOccupiedId = result;
+          const expectToUseUserName = await this.redisService.hget(
+            `user${userID}`,
+            'username'
+          );
+          if (expectToUseUserName !== null && expectToUseUserName !== '') {
+            const allKeys = await this.redisService.keys('user*');
+            // 过滤掉 userctrl- 开头的键，只保留纯用户状态键
+            const keys = allKeys.filter(
+              key => !key.startsWith('userctrl-') && !key.startsWith('user-')
+            );
+            for (const key of keys) {
+              try {
+                const getUser = await this.redisService.hgetall(key);
+                const userIdFromKey = key.replace('user', '');
+                // 向这个工地所有在线的观察者发送消息,如果当前塔吊实控人存在，则发送实控人ID，否则发送空
+                if (getUser['towercraneID'] === algorithmID.toString()) {
+                  const stringMessage = JSON.stringify({
+                    action: MESSAGE_TYPE.REQUEST_ALGORITHM,
+                    algorithmID: algorithmID,
+                    expectToUseUserName: expectToUseUserName,
+                    expectToUseUserID: userID,
+                    currentOccupiedId: currentOccupiedId,
+                  });
+
+                  // 向当前控制人发消息
+                  if (userIdFromKey === currentOccupiedId) {
+                    this.io
+                      ?.to(getUser['socketID'])
+                      .emit(SOCKET_EVENT.SERVER_STATUS_NOTIFY, stringMessage);
+                  }
+
+                  if (userIdFromKey === userID) {
+                    socket.emit(SOCKET_EVENT.CLIENT_REQUEST_ALGORITHM, 'fail');
+                  }
+                }
+              } catch (error) {
+                this.logger.warn(
+                  `Skipping key ${key} due to type mismatch:`,
+                  error.message
+                );
+                continue;
+              }
+            }
+          }
         }
       } catch (error) {
         this.logger.error('clientRequestAlgorithmHandler Error:', error);
@@ -665,6 +714,7 @@ export class SocketIOService {
           }
 
           const stringMessage = JSON.stringify({
+            action: MESSAGE_TYPE.ALGORITHM_STATUS,
             [algorithmID]:
               existedUserID !== '' && existedUserID !== null
                 ? 'occupied'
@@ -673,7 +723,6 @@ export class SocketIOService {
             currentOccupiedId: existedUserID,
             userName: userName,
           });
-          console.error('stringMessage', stringMessage);
           io.to(getUser['socketID']).emit(
             SOCKET_EVENT.SERVER_STATUS_NOTIFY,
             stringMessage
@@ -892,6 +941,7 @@ export class SocketIOService {
 
       if (algorithmID) {
         // 返回指定算法状态
+        console.error('algorithmID 返回指定算法状态', algorithmID);
         await this.sendSpecificAlgorithmStatus(socket, algorithmID);
       } else {
         // 返回用户相关的所有算法状态
@@ -921,6 +971,7 @@ export class SocketIOService {
         'username'
       );
       const statusMessage = JSON.stringify({
+        action: MESSAGE_TYPE.ALGORITHM_STATUS,
         [algorithmID]: status,
         algorithmID: algorithmID,
         currentOccupiedId: existedUserID,

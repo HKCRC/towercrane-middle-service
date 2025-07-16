@@ -1,7 +1,7 @@
 import { ILogger, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { RedisService } from '@midwayjs/redis';
 import { Server } from 'socket.io';
-import { SOCKET_EVENT } from '@/constant';
+import { MESSAGE_TYPE, SOCKET_EVENT } from '@/constant';
 
 export interface ExpirationCallback {
   (expiredKey: string, keyType: string, extractedId: string): Promise<void>;
@@ -132,6 +132,7 @@ export class RedisExpirationService {
         status: 'free',
         expiredAt: new Date().toISOString(),
         reason: 'control_expired',
+        action: MESSAGE_TYPE.ALGORITHM_STATUS,
       });
 
       // 广播给所有客户端
