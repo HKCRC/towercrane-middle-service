@@ -217,6 +217,13 @@ export class SocketIOService {
         this.clientReassignAlgorithmHandler(socket, data);
       });
 
+      socket.on(
+        SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS,
+        async (data: any) => {
+          this.clientAlgorithmCheckAccessHandler(socket, data);
+        }
+      );
+
       socket.on(SOCKET_EVENT.CLIENT_EXIT, async (data: any) => {
         this.clientExitHandler(socket, data);
       });
@@ -231,6 +238,22 @@ export class SocketIOService {
         this.handleRefreshStatus(socket, data);
       });
     });
+  }
+
+  private async clientAlgorithmCheckAccessHandler(socket: Socket, data: any) {
+    try {
+      const parseData = JSON.parse(data);
+      const { userID, algorithmID } = parseData;
+
+      const result = await this.redisService.get(`algorithm-${algorithmID}`);
+      if (result === userID) {
+        socket.emit(SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS, 'success');
+      } else {
+        socket.emit(SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS, 'fail');
+      }
+    } catch (error) {
+      this.logger.error('clientAlgorithmCheckAccessHandler Error:', error);
+    }
   }
 
   private async clientLocationHandler(socket: Socket, data: any) {
@@ -485,7 +508,7 @@ export class SocketIOService {
         this.logger.info('算法端断开:', socket.id);
       } else if (socketData && socketData.type === 'client') {
         const currentUserId = socketData.id;
-        await this.handleUserOfflineStatus(socketData.id, this.io);
+        await this.handleUserOfflineStatus(socketData.id);
         await this.redisService.del(`user${socketData.id}`);
         await this.redisService.del(socket.id);
         await this.redisService.hset(
@@ -507,7 +530,7 @@ export class SocketIOService {
     }
   }
 
-  private async handleUserOfflineStatus(userID: string, io: Server) {
+  private async handleUserOfflineStatus(userID: string) {
     if (!userID) {
       this.logger.error(
         'handleUserOfflineStatus Error:',
@@ -941,7 +964,6 @@ export class SocketIOService {
 
       if (algorithmID) {
         // 返回指定算法状态
-        console.error('algorithmID 返回指定算法状态', algorithmID);
         await this.sendSpecificAlgorithmStatus(socket, algorithmID);
       } else {
         // 返回用户相关的所有算法状态

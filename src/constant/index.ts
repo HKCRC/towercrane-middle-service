@@ -16,6 +16,7 @@ export enum SOCKET_EVENT {
   CLIENT_EXIT = 'client-exit',
   CLIENT_LOCATION = 'client-location',
   CLIENT_REFRESH_STATUS = 'client-refresh-status',
+  CLIENT_ALGORITHM_CHECK_ACCESS = 'client-algorithm-check-access',
 }
 
 export enum USER_STATUS {
