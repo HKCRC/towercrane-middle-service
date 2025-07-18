@@ -8,6 +8,8 @@ import {
   MESSAGE_TYPE,
   SOCKET_EVENT,
   SPECIAL_STATUS,
+  TOWER_CRANE_CONTROL_STATUS,
+  USER_STATUS,
 } from '@/constant';
 // import { parseBinaryData } from '@/utils/message';
 import { AlgorithmService } from './algorithm.service';
@@ -25,6 +27,8 @@ export class SocketIOService {
   private io: Server | null = null;
   private server: HttpServer | null = null;
   private eventHandlers: SocketEventHandlers = {};
+  private globalCheckTimer: NodeJS.Timeout | null = null;
+  private isGlobalCheckRunning = false;
 
   @Inject()
   private algorithmService: AlgorithmService;
@@ -66,6 +70,9 @@ export class SocketIOService {
 
     // 初始化Redis过期事件服务
     await this.setupRedisExpirationService();
+
+    // 启动全局检查机制
+    this.startGlobalCheck();
 
     return new Promise<void>(resolve => {
       this.server.listen(port, () => {
@@ -139,8 +146,8 @@ export class SocketIOService {
 
       if (userID) {
         await this.objectInsert(socket.id, { type: 'client', id: userID });
-        await this.objectInsert('user' + userID, {
-          status: 'online',
+        await this.objectInsert(`user${userID}`, {
+          status: USER_STATUS.CONNECTED,
           socketID: socket.id,
         });
 
@@ -240,16 +247,82 @@ export class SocketIOService {
     });
   }
 
+  private async checkTowerCraneStatusAndSendMessage(
+    socket: Socket,
+    algorithmID: string,
+    userID: string
+  ) {
+    // 检查一下用户有没有塔吊权限
+    const result = await this.redisService.get(`algorithm-${algorithmID}`);
+
+    let status = TOWER_CRANE_CONTROL_STATUS.FREE;
+
+    if (result === null || result === undefined) {
+      status = TOWER_CRANE_CONTROL_STATUS.FREE;
+    } else if (result === userID) {
+      status = TOWER_CRANE_CONTROL_STATUS.USING;
+    } else {
+      status = TOWER_CRANE_CONTROL_STATUS.OCCUPIED;
+    }
+
+    const stringMessage = JSON.stringify({
+      [algorithmID]: status,
+      algorithmID: algorithmID,
+      currentOccupiedId: result,
+      action: MESSAGE_TYPE.ALGORITHM_STATUS_RESPONSE,
+    });
+    socket.emit(SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS, stringMessage);
+  }
+
   private async clientAlgorithmCheckAccessHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
-      const { userID, algorithmID } = parseData;
 
-      const result = await this.redisService.get(`algorithm-${algorithmID}`);
-      if (result === userID) {
-        socket.emit(SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS, 'success');
+      const { userID, algorithmID, timestamp, username, placeID } = parseData;
+      const findUser = await this.redisService.hgetall(`user${userID}`);
+
+      if (
+        findUser !== null &&
+        findUser !== undefined &&
+        findUser.status !== USER_STATUS.CONNECTED
+      ) {
+        await this.redisService.hset(
+          `user${userID}`,
+          'status',
+          USER_STATUS.ONLINE,
+          'lastHeartbeat',
+          timestamp
+        );
+        await this.checkTowerCraneStatusAndSendMessage(
+          socket,
+          algorithmID,
+          userID
+        );
+
+        return;
       } else {
-        socket.emit(SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS, 'fail');
+        // 这是一种很特殊的情况，如果用户还可以持续发起socket，但是可能是系统重启了，没有记录到redis的注册记录，这里可能需要补一个状态
+        await this.redisService.hset(
+          `user${userID}`,
+          'status',
+          USER_STATUS.ONLINE,
+          'lastHeartbeat',
+          timestamp,
+          'socketID',
+          socket.id,
+          'towercraneID',
+          algorithmID,
+          'username',
+          username,
+          'placeID',
+          placeID
+        );
+        await this.checkTowerCraneStatusAndSendMessage(
+          socket,
+          algorithmID,
+          userID
+        );
+        return;
       }
     } catch (error) {
       this.logger.error('clientAlgorithmCheckAccessHandler Error:', error);
@@ -287,14 +360,18 @@ export class SocketIOService {
   private async clientRelationRegisterHandler(socket: Socket, data: any) {
     try {
       const parseData = JSON.parse(data);
-      const { userID, towercraneID, userName } = parseData;
+      const { userID, towercraneID, userName, placeID } = parseData;
       // 这里仅仅是说明用户加入了这个塔吊的观察者中，并没有其他业务逻辑
       await this.redisService.hset(
         `user${userID}`,
         'towercraneID',
         towercraneID,
         'username',
-        userName
+        userName,
+        'status',
+        USER_STATUS.ONLINE,
+        'placeID',
+        placeID
       );
     } catch (error) {
       this.logger.error('clientRelationRegisterHandler Error:', error);
@@ -503,21 +580,15 @@ export class SocketIOService {
         await this.redisService.hset(
           'algorithm' + socketData.id,
           'status',
-          'offline'
+          USER_STATUS.OFFLINE
         );
         this.logger.info('算法端断开:', socket.id);
       } else if (socketData && socketData.type === 'client') {
         const currentUserId = socketData.id;
+        console.error(`socketData: ${JSON.stringify(socketData)}`);
         await this.handleUserOfflineStatus(socketData.id);
         await this.redisService.del(`user${socketData.id}`);
         await this.redisService.del(socket.id);
-        await this.redisService.hset(
-          'user' + socketData.id,
-          'status',
-          'offline'
-        );
-        console.log('socketData.place_id', socketData);
-        console.log('currentUserId', currentUserId);
         await this.redisService.hdel(
           `user-position-${socketData.place_id}`,
           currentUserId
@@ -740,8 +811,8 @@ export class SocketIOService {
             action: MESSAGE_TYPE.ALGORITHM_STATUS,
             [algorithmID]:
               existedUserID !== '' && existedUserID !== null
-                ? 'occupied'
-                : 'free',
+                ? TOWER_CRANE_CONTROL_STATUS.OCCUPIED
+                : TOWER_CRANE_CONTROL_STATUS.FREE,
             algorithmID: algorithmID,
             currentOccupiedId: existedUserID,
             userName: userName,
@@ -985,8 +1056,8 @@ export class SocketIOService {
       );
       const status =
         existedUserID && existedUserID !== '' && existedUserID !== null
-          ? 'occupied'
-          : 'free';
+          ? TOWER_CRANE_CONTROL_STATUS.OCCUPIED
+          : TOWER_CRANE_CONTROL_STATUS.FREE;
 
       const userName = await this.redisService.hget(
         `user${existedUserID}`,
@@ -1065,6 +1136,125 @@ export class SocketIOService {
   }
 
   /**
+   * 启动30秒全局检查机制
+   */
+  private startGlobalCheck(): void {
+    if (this.globalCheckTimer) {
+      this.logger.warn('Global check timer already running');
+      return;
+    }
+
+    this.globalCheckTimer = setInterval(async () => {
+      if (this.isGlobalCheckRunning) {
+        this.logger.info(
+          'Previous global check still running, skipping this cycle'
+        );
+        return;
+      }
+
+      this.isGlobalCheckRunning = true;
+      const startTime = Date.now();
+
+      try {
+        this.logger.info('Starting global check cycle...');
+        await this.executeGlobalCheck();
+        const duration = Date.now() - startTime;
+        this.logger.info(`Global check completed in ${duration}ms`);
+      } catch (error) {
+        this.logger.error('Global check failed:', error);
+      } finally {
+        this.isGlobalCheckRunning = false;
+      }
+    }, 30000); // 30秒间隔
+
+    this.logger.info('Global check timer started (30s interval)');
+  }
+
+  /**
+   * 停止全局检查机制
+   */
+  private stopGlobalCheck(): void {
+    if (this.globalCheckTimer) {
+      clearInterval(this.globalCheckTimer);
+      this.globalCheckTimer = null;
+      this.logger.info('Global check timer stopped');
+    }
+  }
+
+  /**
+   * 执行全局检查
+   */
+  private async executeGlobalCheck(): Promise<void> {
+    try {
+      await this.checkUserHeartbeats();
+      // 让出事件循环，避免阻塞
+      await this.sleep(50);
+    } catch (error) {
+      this.logger.error('executeGlobalCheck error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 检查用户心跳状态
+   */
+  private async checkUserHeartbeats(): Promise<void> {
+    try {
+      // 只匹配用户状态键，避免匹配到 userctrl- 等其他类型的键
+      const allKeys = await this.redisService.keys('user*');
+      // 过滤掉 userctrl- 开头的键，只保留纯用户状态键
+      const keys = allKeys.filter(
+        key => !key.startsWith('userctrl-') && !key.startsWith('user-')
+      );
+
+      for (const key of keys) {
+        try {
+          const getUser = await this.redisService.hgetall(key);
+          const userId = key.replace('user', '');
+          const lastHeartbeat = Number(getUser['lastHeartbeat']);
+
+          if (!lastHeartbeat || lastHeartbeat === 0) {
+            break;
+          }
+          const currentTime = Date.now();
+          const timeDiff = currentTime - lastHeartbeat;
+
+          if (timeDiff > 10000) {
+            // 如果心跳时间超过10秒，认为用户已离线
+            await this.redisService.del(key);
+            const getTowerCrane = await this.redisService.get(
+              `algorithm-${getUser['towercraneID']}`
+            );
+
+            if (getTowerCrane && getTowerCrane === userId) {
+              await this.redisService.del(
+                `algorithm-${getUser['towercraneID']}`
+              );
+              await this.redisService.del(`userctrl-${userId}`);
+            }
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Skipping key ${key} due to type mismatch:`,
+            error.message
+          );
+          continue;
+        }
+      }
+    } catch (error) {
+      this.logger.error('checkUserHeartbeats error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 工具方法：睡眠指定毫秒数
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
    * 注册事件处理器
    * @param eventName 事件名称
    * @param handler 事件处理函数
@@ -1129,6 +1319,9 @@ export class SocketIOService {
    */
   public close(): Promise<void> {
     return new Promise(resolve => {
+      // 停止全局检查
+      this.stopGlobalCheck();
+
       if (!this.io) {
         console.error('Socket.io server not initialized');
         return resolve();

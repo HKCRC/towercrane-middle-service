@@ -20,6 +20,7 @@ export enum SOCKET_EVENT {
 }
 
 export enum USER_STATUS {
+  CONNECTED = 'connected',
   ONLINE = 'online',
   OFFLINE = 'offline',
 }
@@ -31,4 +32,15 @@ export const SPECIAL_STATUS = {
 export enum MESSAGE_TYPE {
   ALGORITHM_STATUS = 'Algorithm_Status',
   REQUEST_ALGORITHM = 'Request_Algorithm',
+  ALGORITHM_STATUS_RESPONSE = 'Algorithm_Status_Response',
+}
+
+export enum RedisKey {
+  OFFLINE_CANDIDATES = 'offline-candidates',
+}
+
+export enum TOWER_CRANE_CONTROL_STATUS {
+  OCCUPIED = 'occupied',
+  FREE = 'free',
+  USING = 'using',
 }
