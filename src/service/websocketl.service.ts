@@ -61,7 +61,15 @@ export class SocketIOService {
       cors: {
         origin: '*',
         methods: ['GET', 'POST'],
+        allowedHeaders: ['*'],
+        credentials: true,
       },
+      allowEIO3: true,
+      transports: ['websocket', 'polling'],
+      pingTimeout: 60000,
+      pingInterval: 25000,
+      upgradeTimeout: 30000,
+      maxHttpBufferSize: 1e6,
       ...options,
     });
 
@@ -75,8 +83,10 @@ export class SocketIOService {
     this.startGlobalCheck();
 
     return new Promise<void>(resolve => {
-      this.server.listen(port, () => {
-        console.log(`Socket.io server started on port ${port}`);
+      this.server.listen(port, '0.0.0.0', () => {
+        console.log(
+          `Socket.io server started on port ${port} (all interfaces)`
+        );
         resolve();
       });
     });
@@ -344,6 +354,7 @@ export class SocketIOService {
       const insertLocationAndUserInfo = {
         ...location,
         ...userInfo,
+        lastHeartbeat: Date.now(), // 添加心跳时间戳
       };
       await this.redisService.hset(
         `user-position-${place_id}`,
@@ -1200,6 +1211,22 @@ export class SocketIOService {
    */
   private async checkUserHeartbeats(): Promise<void> {
     try {
+      // 检查用户状态心跳
+      await this.checkUserStatusHeartbeats();
+
+      // 检查位置信息心跳
+      await this.checkUserPositionHeartbeats();
+    } catch (error) {
+      this.logger.error('checkUserHeartbeats error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 检查用户状态心跳（原有逻辑）
+   */
+  private async checkUserStatusHeartbeats(): Promise<void> {
+    try {
       // 只匹配用户状态键，避免匹配到 userctrl- 等其他类型的键
       const allKeys = await this.redisService.keys('user*');
       // 过滤掉 userctrl- 开头的键，只保留纯用户状态键
@@ -1242,7 +1269,65 @@ export class SocketIOService {
         }
       }
     } catch (error) {
-      this.logger.error('checkUserHeartbeats error:', error);
+      this.logger.error('checkUserStatusHeartbeats error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 检查位置信息心跳并清理离线用户
+   */
+  private async checkUserPositionHeartbeats(): Promise<void> {
+    try {
+      const positionKeys = await this.redisService.keys('user-position-*');
+
+      for (const positionKey of positionKeys) {
+        try {
+          const allUsers = await this.redisService.hgetall(positionKey);
+          const expiredUsers: string[] = [];
+
+          for (const [userId, userDataStr] of Object.entries(allUsers)) {
+            try {
+              const userData = JSON.parse(userDataStr);
+              const lastHeartbeat = Number(userData.lastHeartbeat);
+
+              if (!lastHeartbeat || lastHeartbeat === 0) {
+                expiredUsers.push(userId);
+                continue;
+              }
+
+              const currentTime = Date.now();
+              const timeDiff = currentTime - lastHeartbeat;
+
+              // 如果位置心跳超过20秒，认为用户已离线（位置信息可以容忍更长时间）
+              if (timeDiff > 20000) {
+                expiredUsers.push(userId);
+              }
+            } catch (parseError) {
+              this.logger.warn(
+                `Failed to parse user data for ${userId}:`,
+                parseError
+              );
+              expiredUsers.push(userId); // 解析失败的也移除
+            }
+          }
+
+          // 批量删除过期用户
+          if (expiredUsers.length > 0) {
+            await this.redisService.hdel(positionKey, ...expiredUsers);
+            this.logger.info(
+              `Removed ${expiredUsers.length} offline users from ${positionKey}`
+            );
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Error processing position key ${positionKey}:`,
+            error
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error('checkUserPositionHeartbeats error:', error);
       throw error;
     }
   }
@@ -1342,5 +1427,33 @@ export class SocketIOService {
         resolve();
       });
     });
+  }
+
+  /**
+   * 手动更新用户在位置hash中的心跳时间
+   * @param placeId 项目/地点ID
+   * @param userId 用户ID
+   */
+  public async updateUserPositionHeartbeat(
+    placeId: string,
+    userId: string
+  ): Promise<void> {
+    try {
+      const positionKey = `user-position-${placeId}`;
+      const userDataStr = await this.redisService.hget(positionKey, userId);
+
+      if (userDataStr) {
+        const userData = JSON.parse(userDataStr);
+        userData.lastHeartbeat = Date.now();
+
+        await this.redisService.hset(
+          positionKey,
+          userId,
+          JSON.stringify(userData)
+        );
+      }
+    } catch (error) {
+      this.logger.error('updateUserPositionHeartbeat error:', error);
+    }
   }
 }
