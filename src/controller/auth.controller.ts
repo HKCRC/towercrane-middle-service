@@ -1,5 +1,5 @@
 import { Body, Context, Controller, Get, Inject, Post } from '@midwayjs/core';
-import { AdminService } from '@/service/auth.service';
+import { AuthService } from '@/service/auth.service';
 import { JwtPassportMiddleWare } from '@/middleware/jwt.middleware';
 import { JwtService } from '@midwayjs/jwt';
 import { StateUser } from '@/types';
@@ -13,7 +13,7 @@ export class APIController {
   jwt: JwtService;
 
   @Inject()
-  adminService: AdminService;
+  authService: AuthService;
 
   @Post('/login')
   async login(
@@ -21,7 +21,7 @@ export class APIController {
     @Body('password') password: string
   ) {
     try {
-      const user = await this.adminService.login(phoneNumber, password);
+      const user = await this.authService.login(phoneNumber, password);
       if (!user.success) {
         return {
           success: false,
@@ -63,10 +63,10 @@ export class APIController {
           data: undefined,
         };
       }
-      const user = await this.adminService.register(phoneNumber, password);
+      const user = await this.authService.register(phoneNumber, password);
 
       if (user.id && user.phoneNumber) {
-        const getUserResult = await this.adminService.login(
+        const getUserResult = await this.authService.login(
           user.phoneNumber,
           userPsw
         );

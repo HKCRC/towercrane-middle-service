@@ -16,6 +16,8 @@ import { AlgorithmService } from './algorithm.service';
 import { RedisExpirationService } from './redis-expiration.service';
 import { v4 as uuidv4 } from 'uuid';
 import { AlgorithmStatus } from '@/types';
+import { UploadMapService } from './uploadmap.service';
+import { AuthService } from './auth.service';
 
 interface SocketEventHandlers {
   [eventName: string]: (socket: Socket, data: any) => void;
@@ -37,10 +39,16 @@ export class SocketIOService {
   private redisExpirationService: RedisExpirationService;
 
   @Inject()
+  private uploadMapService: UploadMapService;
+
+  @Inject()
   logger: ILogger;
 
   @Inject()
   redisService: RedisService;
+
+  @Inject()
+  authService: AuthService;
 
   /**
    * 初始化 Socket.io 服务器
@@ -64,7 +72,7 @@ export class SocketIOService {
         allowedHeaders: ['*'],
         credentials: true,
       },
-      allowEIO3: true,
+      allowUpgrades: true,
       transports: ['websocket', 'polling'],
       pingTimeout: 60000,
       pingInterval: 25000,
@@ -241,6 +249,10 @@ export class SocketIOService {
         }
       );
 
+      socket.on(SOCKET_EVENT.UPLOAD_MAP, async (data: any) => {
+        this.serverUploadMapHandler(socket, data);
+      });
+
       socket.on(SOCKET_EVENT.CLIENT_EXIT, async (data: any) => {
         this.clientExitHandler(socket, data);
       });
@@ -282,6 +294,74 @@ export class SocketIOService {
       action: MESSAGE_TYPE.ALGORITHM_STATUS_RESPONSE,
     });
     socket.emit(SOCKET_EVENT.CLIENT_ALGORITHM_CHECK_ACCESS, stringMessage);
+  }
+
+  private async serverUploadMapHandler(socket: Socket, data: any) {
+    const socketId = socket.id;
+    const getTowerCraneIndexId = await this.redisService.hget(socketId, 'id');
+    console.error('getTowerCraneId', getTowerCraneIndexId);
+
+    try {
+      const getTowerCraneIdFromDb =
+        await this.algorithmService.getAlgorithmById(
+          Number(getTowerCraneIndexId)
+        );
+      const placeId = getTowerCraneIdFromDb.place_id;
+      if (!getTowerCraneIdFromDb) {
+        this.logger.error('serverUploadMapHandler Error1:', '塔吊ID不存在');
+        return;
+      }
+      const uploadResult = await this.uploadMapService.upload(
+        data,
+        getTowerCraneIdFromDb.algorithm_id
+      );
+
+      this.logger.info('serverUploadMapHandler-uploadResult', uploadResult);
+
+      if (uploadResult.success) {
+        // 向当前塔吊拥有权限的人播放消息
+        this.notifyMapUploaded(
+          getTowerCraneIdFromDb.algorithm_id,
+          getTowerCraneIndexId,
+          uploadResult.data,
+          placeId
+        );
+      } else {
+        this.logger.error('serverUploadMapHandler Error1:', uploadResult);
+      }
+    } catch (error) {
+      this.logger.error('serverUploadMapHandler Error2:', error);
+    }
+  }
+
+  // 向当前工区所有在线用户发送消息
+  private async notifyMapUploaded(
+    crane_id: string,
+    crane_index_id: string,
+    data: any,
+    placeId: string
+  ) {
+    try {
+      const getCurrentPlaceUser = await this.redisService.get(
+        `algorithm-${crane_index_id}`
+      );
+
+      const userIsOnline = await this.redisService.get(
+        `userctrl-${getCurrentPlaceUser}`
+      );
+
+      if (getCurrentPlaceUser && getCurrentPlaceUser !== '' && userIsOnline) {
+        const currentOnlineUserSocketID = await this.redisService.hget(
+          `user${userIsOnline}`,
+          'socketID'
+        );
+        this.io
+          ?.to(currentOnlineUserSocketID)
+          .emit(SOCKET_EVENT.RECEIVE_MAP, data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   private async clientAlgorithmCheckAccessHandler(socket: Socket, data: any) {
@@ -862,8 +942,6 @@ export class SocketIOService {
       const findAlgorithmResult =
         await this.algorithmService.getAlgorithmByName(parserData?.name);
 
-      console.log('findAlgorithmResult', findAlgorithmResult);
-
       if (findAlgorithmResult.id) {
         await this.handleClientStatusUpdate(
           findAlgorithmResult.id.toString(),
@@ -1034,7 +1112,7 @@ export class SocketIOService {
   // 处理用户主动刷新状态请求
   private async handleRefreshStatus(socket: Socket, data: any) {
     try {
-      const userID = socket.handshake.auth.userID;
+      const { userID } = socket.handshake.auth;
       if (!userID) {
         this.logger.error('handleRefreshStatus Error: userID is undefined');
         return;

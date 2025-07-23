@@ -1,6 +1,6 @@
 import { PrismaService } from '@/providers/prisma';
 import { Context, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
-import { AlgorithmStatus } from '@/types';
+import { AlgorithmStatus, StateUser } from '@/types';
 
 @Provide()
 @Scope(ScopeEnum.Request, { allowDowngrade: true })
@@ -8,11 +8,24 @@ export class AlgorithmService {
   @Inject()
   ctx: Context;
 
-  async getAlgorithm() {
+  async getAlgorithm(user: StateUser) {
     try {
+      const getPlaceId = await PrismaService.user.findFirst({
+        where: {
+          uid: user.userId,
+        },
+      });
+      if (!getPlaceId) {
+        return {
+          success: false,
+          message: '用户不存在',
+          data: null,
+        };
+      }
       const result = await PrismaService.algorithmInfo.findMany({
         where: {
           status: AlgorithmStatus.IDLE,
+          place_id: getPlaceId.place_id,
         },
       });
       return result;

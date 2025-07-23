@@ -1,4 +1,4 @@
-import { Inject, Provide } from '@midwayjs/core';
+import { Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { PrismaService } from '@/providers/prisma';
 import { JwtService } from '@midwayjs/jwt';
 import { PasswordService } from '@/service/password.service';
@@ -7,7 +7,8 @@ import { USER_STATUS, UserRole } from '@/constant';
 import { RedisService } from '@midwayjs/redis';
 
 @Provide()
-export class AdminService {
+@Scope(ScopeEnum.Request, { allowDowngrade: true })
+export class AuthService {
   @Inject()
   jwt: JwtService;
 
@@ -109,6 +110,20 @@ export class AdminService {
         throw error;
       }
       throw new Error('注册失败');
+    }
+  }
+
+  async getCurrentPlaceUsers(placeId: string) {
+    try {
+      const users = await PrismaService.user.findMany({
+        where: {
+          place_id: placeId,
+        },
+      });
+      return users;
+    } catch (error) {
+      console.error(error);
+      return [];
     }
   }
 }

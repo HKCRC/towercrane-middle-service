@@ -17,6 +17,8 @@ export enum SOCKET_EVENT {
   CLIENT_LOCATION = 'client-location',
   CLIENT_REFRESH_STATUS = 'client-refresh-status',
   CLIENT_ALGORITHM_CHECK_ACCESS = 'client-algorithm-check-access',
+  UPLOAD_MAP = 'upload_map',
+  RECEIVE_MAP = 'receive_map',
 }
 
 export enum USER_STATUS {
@@ -44,3 +46,5 @@ export enum TOWER_CRANE_CONTROL_STATUS {
   FREE = 'free',
   USING = 'using',
 }
+
+export const REGISTER_CODE = 'HKCRC_001';

@@ -1,16 +1,36 @@
+import { JwtPassportMiddleWare } from '@/middleware/jwt.middleware';
 import { AlgorithmService } from '@/service/algorithm.service';
-import { AlgorithmStatus } from '@/types';
-import { Body, Controller, Get, Inject, Param, Post } from '@midwayjs/core';
+import { AlgorithmStatus, StateUser } from '@/types';
+import {
+  Body,
+  Context,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Post,
+} from '@midwayjs/core';
 
 @Controller('/algorithm')
 export class AlgorithmController {
   @Inject()
   algorithmService: AlgorithmService;
 
-  @Get('/')
+  @Inject()
+  ctx: Context;
+
+  @Get('/', { middleware: [JwtPassportMiddleWare] })
   async getAlgorithm() {
     try {
-      const result = await this.algorithmService.getAlgorithm();
+      const user = (this.ctx as any).state.user as StateUser;
+      if (!user) {
+        return {
+          success: false,
+          message: '用户未登录',
+          data: null,
+        };
+      }
+      const result = await this.algorithmService.getAlgorithm(user);
       return {
         success: true,
         message: 'OK',
