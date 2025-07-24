@@ -10,6 +10,14 @@ export default {
     secret: 'towercrane_service',
     expiresIn: '2d',
   },
+  staticFile: {
+    dirs: {
+      default: {
+        prefix: '/uploadpic',
+        dir: process.env.UPLOAD_DIR,
+      },
+    },
+  },
   passport: {
     session: false,
   },

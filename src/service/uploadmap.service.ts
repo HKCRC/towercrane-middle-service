@@ -1,7 +1,6 @@
 import { PrismaService } from '@/providers/prisma';
 import { Provide, Scope, ScopeEnum } from '@midwayjs/core';
-import { existsSync } from 'fs';
-import { mkdir, writeFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -10,37 +9,56 @@ import { v4 as uuidv4 } from 'uuid';
 export class UploadMapService {
   private readonly uploadDir = process.env.UPLOAD_DIR;
 
-  async fetchMap(taskid: string) {
-    const mapInfo = await PrismaService.mapInfo.findUnique({
-      where: {
-        map_id: taskid,
-      },
-    });
-    if (!mapInfo) {
+  async fetchMap(towerCraneId: string) {
+    try {
+      const mapInfo = await PrismaService.mapInfo.findMany({
+        where: {
+          tower_crane_id: towerCraneId,
+        },
+        orderBy: {
+          version: 'desc',
+        },
+      });
+      let isNeedUpdate = false;
+      if (mapInfo.length !== 0 && mapInfo[0].isUsed === false) {
+        isNeedUpdate = true;
+      }
+
+      if (!mapInfo) {
+        return {
+          success: false,
+          message: '地图信息不存在',
+        };
+      }
+      return {
+        success: true,
+        message: '获取地图信息成功',
+        data: {
+          mapList: mapInfo,
+          isNeedUpdate,
+        },
+      };
+    } catch (error) {
       return {
         success: false,
-        message: '地图信息不存在',
+        message: '获取地图信息失败',
+        data: null,
       };
     }
-    return {
-      success: true,
-      message: '获取地图信息成功',
-      data: mapInfo,
-    };
   }
 
   async upload(file: Buffer, crane_id: string) {
     try {
       const taskid = `${new Date().getTime()}-${uuidv4().slice(0, 8)}`;
 
-      // 确保上传目录存在
-      if (!existsSync(`${this.uploadDir}/${taskid}`)) {
-        await mkdir(`${this.uploadDir}/${taskid}`, { recursive: true });
-      }
+      // // 确保上传目录存在
+      // if (!existsSync(`${this.uploadDir}/${taskid}`)) {
+      //   await mkdir(`${this.uploadDir}/${taskid}`, { recursive: true });
+      // }
 
       // 生成唯一文件名
       const fileName = `${taskid}.jpg`;
-      const filePath = join(`${this.uploadDir}/${taskid}`, fileName);
+      const filePath = join(this.uploadDir, fileName);
 
       await writeFile(filePath, file);
 
@@ -71,6 +89,39 @@ export class UploadMapService {
         data: null,
         success: false,
         message: '上传失败',
+      };
+    }
+  }
+
+  async selectMap(mapid: string) {
+    try {
+      const updateMapResult = await PrismaService.mapInfo.update({
+        where: {
+          map_id: mapid,
+        },
+        data: {
+          isUsed: true,
+        },
+      });
+
+      if (updateMapResult) {
+        return {
+          success: true,
+          message: '选择地图成功',
+          data: updateMapResult,
+        };
+      }
+
+      return {
+        success: false,
+        message: '选择地图失败',
+        data: null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '选择地图失败',
+        data: null,
       };
     }
   }

@@ -249,6 +249,10 @@ export class SocketIOService {
         }
       );
 
+      socket.on(SOCKET_EVENT.CLIENT_FORCE_UPDATE_MAP, async (data: any) => {
+        this.clientForceUpdateMapHandler(socket, data);
+      });
+
       socket.on(SOCKET_EVENT.UPLOAD_MAP, async (data: any) => {
         this.serverUploadMapHandler(socket, data);
       });
@@ -267,6 +271,42 @@ export class SocketIOService {
         this.handleRefreshStatus(socket, data);
       });
     });
+  }
+
+  private async clientForceUpdateMapHandler(socket: Socket, data: any) {
+    try {
+      console.log('clientForceUpdateMapHandler', data);
+      const parseData = JSON.parse(data);
+      const { mapUrl, towercraneIDIndex } = parseData;
+      const allKeys = await this.redisService.keys('user*');
+      // 过滤掉 userctrl- 开头的键，只保留纯用户状态键
+      const keys = allKeys.filter(
+        key => !key.startsWith('userctrl-') && !key.startsWith('user-')
+      );
+      for (const key of keys) {
+        try {
+          const getUser = await this.redisService.hgetall(key);
+          // 向这个工地所有在线的观察者发送消息,如果当前塔吊实控人存在，则发送实控人ID，否则发送空
+          if (getUser['towercraneID'] === towercraneIDIndex.toString()) {
+            const stringMessage = JSON.stringify({
+              success: true,
+              map_url: mapUrl,
+            });
+            this.io
+              ?.to(getUser['socketID'])
+              .emit(SOCKET_EVENT.CLIENT_FORCE_UPDATE_MAP, stringMessage);
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Skipping key ${key} due to type mismatch:`,
+            error.message
+          );
+          continue;
+        }
+      }
+    } catch (error) {
+      this.logger.error('clientForceUpdateMapHandler Error:', error);
+    }
   }
 
   private async checkTowerCraneStatusAndSendMessage(
@@ -299,15 +339,14 @@ export class SocketIOService {
   private async serverUploadMapHandler(socket: Socket, data: any) {
     const socketId = socket.id;
     const getTowerCraneIndexId = await this.redisService.hget(socketId, 'id');
-    console.error('getTowerCraneId', getTowerCraneIndexId);
 
     try {
       const getTowerCraneIdFromDb =
         await this.algorithmService.getAlgorithmById(
           Number(getTowerCraneIndexId)
         );
-      const placeId = getTowerCraneIdFromDb.place_id;
-      if (!getTowerCraneIdFromDb) {
+      const placeId = getTowerCraneIdFromDb?.place_id;
+      if (!getTowerCraneIdFromDb || !placeId) {
         this.logger.error('serverUploadMapHandler Error1:', '塔吊ID不存在');
         return;
       }
@@ -323,8 +362,7 @@ export class SocketIOService {
         this.notifyMapUploaded(
           getTowerCraneIdFromDb.algorithm_id,
           getTowerCraneIndexId,
-          uploadResult.data,
-          placeId
+          uploadResult.data
         );
       } else {
         this.logger.error('serverUploadMapHandler Error1:', uploadResult);
@@ -338,8 +376,7 @@ export class SocketIOService {
   private async notifyMapUploaded(
     crane_id: string,
     crane_index_id: string,
-    data: any,
-    placeId: string
+    data: any
   ) {
     try {
       const getCurrentPlaceUser = await this.redisService.get(

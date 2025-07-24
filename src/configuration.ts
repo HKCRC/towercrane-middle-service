@@ -12,6 +12,7 @@ import { ReportMiddleware } from './middleware/report.middleware';
 import { DefaultFilter } from './filter/default.filter';
 import { ResponseMiddleware } from '@/middleware/response.middleware';
 import { SocketIOService } from '@/service/websocketl.service';
+import * as staticFile from '@midwayjs/static-file';
 
 @Configuration({
   imports: [
@@ -26,6 +27,7 @@ import { SocketIOService } from '@/service/websocketl.service';
     busboy,
     crossDomain,
     redis,
+    staticFile,
   ],
   importConfigs: [join(__dirname, './config')],
 })
