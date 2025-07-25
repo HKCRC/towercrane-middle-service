@@ -1,6 +1,7 @@
 import { PrismaService } from '@/providers/prisma';
 import { Context, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { AlgorithmStatus, StateUser } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
 
 @Provide()
 @Scope(ScopeEnum.Request, { allowDowngrade: true })
@@ -34,6 +35,17 @@ export class AlgorithmService {
     }
   }
 
+  async getAlgorithmByAlgorithmId(algorithmId: string) {
+    try {
+      const result = await PrismaService.algorithmInfo.findFirst({
+        where: { algorithm_id: algorithmId },
+      });
+      return result;
+    } catch (error) {
+      throw new Error('Failed to get algorithm by id');
+    }
+  }
+
   async getAlgorithmById(id: number) {
     try {
       const result = await PrismaService.algorithmInfo.findFirst({
@@ -56,16 +68,37 @@ export class AlgorithmService {
     }
   }
 
-  async getAllAlgorithm() {
+  async getAllAlgorithm(page: number, pageSize: number, placeId: string) {
     try {
+      const total = await PrismaService.algorithmInfo.count({
+        where: {
+          place_id: placeId,
+        },
+      });
       const result = await PrismaService.algorithmInfo.findMany({
         orderBy: {
           createdAt: 'desc',
         },
+        where: {
+          place_id: placeId,
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       });
-      return result;
+
+      return {
+        success: true,
+        message: 'OK',
+        data: result,
+        total,
+      };
     } catch (error) {
-      throw new Error('Failed to get all algorithm');
+      return {
+        success: false,
+        message: 'Failed',
+        data: error,
+        total: 0,
+      };
     }
   }
 
@@ -87,6 +120,8 @@ export class AlgorithmService {
       description?: string;
       map_name?: string;
       status?: AlgorithmStatus;
+      place_id?: string;
+      extra_info_json?: Record<string, any>;
     }
   ) {
     try {
@@ -103,16 +138,23 @@ export class AlgorithmService {
   async createAlgorithm(data: {
     name: string;
     description: string;
-    algorithm_id: string;
-    map_name: string;
-    status: AlgorithmStatus;
+    extra_info_json: Record<string, any>;
+    place_id: string;
+    algorithm_type: string;
   }) {
     try {
+      const algorithm_id = uuidv4();
+      const map_name = '';
       const result = await PrismaService.algorithmInfo.create({
-        data,
+        data: {
+          ...data,
+          algorithm_id,
+          map_name,
+        },
       });
       return result;
     } catch (error) {
+      console.error('Error creating algorithm:', error);
       throw new Error('Failed to create algorithm');
     }
   }

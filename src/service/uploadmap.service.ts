@@ -20,7 +20,7 @@ export class UploadMapService {
         },
       });
       let isNeedUpdate = false;
-      if (mapInfo.length !== 0 && mapInfo[0].isUsed === false) {
+      if (mapInfo.length > 1 && mapInfo[0].isUsed === false) {
         isNeedUpdate = true;
       }
 

@@ -15,13 +15,13 @@ datasource db {
 
 // 工地信息
 model PlaceInfo {
-  id            Int      @id @default(autoincrement())
-  place_id      String   @unique
-  place_name    String   @default("")
-  place_type    String   @default("")
-  place_address String   @default("")
-  extra_info    String   @default("")
-  createdAt     DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  place_id        String   @unique
+  place_name      String   @default("")
+  place_type      String   @default("")
+  place_address   String   @default("")
+  extra_info_json Json     @map("extra_info_json")
+  createdAt       DateTime @default(now())
 }
 
 // 用户信息
@@ -39,16 +39,17 @@ model User {
 
 // 算法信息
 model AlgorithmInfo {
-  id             Int      @id @default(autoincrement())
-  algorithm_id   String   @unique
-  name           String   @unique
-  description    String
-  map_name       String
-  place_id       String   @default("")
-  status         String   @default("idle")
-  createdAt      DateTime @default(now())
-  center_point   String   @default("")
-  algorithm_type String   @default("1") // 1: 平头塔吊 2: 动臂塔吊
+  id              Int      @id @default(autoincrement())
+  algorithm_id    String   @unique
+  name            String   @unique
+  description     String
+  map_name        String
+  place_id        String   @default("")
+  status          String   @default("idle")
+  createdAt       DateTime @default(now())
+  center_point    String   @default("")
+  algorithm_type  String   @default("1") // 1: 平头塔吊 2: 动臂塔吊
+  extra_info_json Json     @map("extra_info_json")
 }
 
 // 算法用户关系 一个用户可以关联多个算法

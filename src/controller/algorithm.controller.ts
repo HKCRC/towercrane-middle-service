@@ -1,14 +1,14 @@
 import { JwtPassportMiddleWare } from '@/middleware/jwt.middleware';
 import { AlgorithmService } from '@/service/algorithm.service';
-import { AlgorithmStatus, StateUser } from '@/types';
+import { StateUser } from '@/types';
 import {
   Body,
   Context,
   Controller,
   Get,
   Inject,
-  Param,
   Post,
+  Query,
 } from '@midwayjs/core';
 
 @Controller('/algorithm')
@@ -46,13 +46,22 @@ export class AlgorithmController {
   }
 
   @Get('/all')
-  async getAllAlgorithm() {
+  async getAllAlgorithm(
+    @Query('page') page: number,
+    @Query('pageSize') pageSize: number,
+    @Query('place_id') place_id: string
+  ) {
     try {
-      const result = await this.algorithmService.getAllAlgorithm();
+      const result = await this.algorithmService.getAllAlgorithm(
+        page,
+        pageSize,
+        place_id
+      );
       return {
         success: true,
         message: 'OK',
-        data: result,
+        data: result.data,
+        total: result.total,
       };
     } catch (error) {
       return {
@@ -63,11 +72,11 @@ export class AlgorithmController {
     }
   }
 
-  @Post('/:algorithmId')
-  async deleteAlgorithm(@Param('algorithmId') algorithmId: string) {
+  @Post('/delete')
+  async deleteAlgorithm(@Body() data: { algorithmId: string }) {
     try {
       const result = await this.algorithmService.deleteAlgorithm(
-        Number(algorithmId)
+        Number(data.algorithmId)
       );
       return {
         success: true,
@@ -88,10 +97,10 @@ export class AlgorithmController {
     @Body()
     data: {
       name: string;
-      algorithm_id: string;
       description: string;
-      map_name: string;
-      status: AlgorithmStatus;
+      extra_info_json: Record<string, any>;
+      place_id: string;
+      algorithm_type: string;
     }
   ) {
     try {
@@ -114,16 +123,16 @@ export class AlgorithmController {
   async updateAlgorithm(
     @Body()
     data: {
-      algorithm_id: string;
+      id: number;
       name: string;
       description: string;
-      map_name: string;
-      status: AlgorithmStatus;
+      algorithm_type: string;
+      extra_info_json: Record<string, any>;
     }
   ) {
     try {
       const result = await this.algorithmService.updateAlgorithm(
-        Number(data.algorithm_id),
+        Number(data.id),
         data
       );
       return {

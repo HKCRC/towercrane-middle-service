@@ -124,7 +124,7 @@ export class AdminService {
     place_name: string;
     place_type: string;
     place_address: string;
-    extra_info: string;
+    extra_info_json: string;
   }) {
     const place = await PrismaService.placeInfo.create({
       data: {
@@ -151,7 +151,7 @@ export class AdminService {
     place_name: string;
     place_type: string;
     place_address: string;
-    extra_info: string;
+    extra_info_json: string;
   }) {
     const place = await PrismaService.placeInfo.update({
       where: { place_id: body.place_id },

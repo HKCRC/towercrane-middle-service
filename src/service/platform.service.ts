@@ -25,6 +25,7 @@ export class PlatformService {
           algorithm_type,
           center_point,
           algorithm_id,
+          extra_info_json: {},
         },
       });
       return { success: true, message: 'OK', data: algorithmInfo };

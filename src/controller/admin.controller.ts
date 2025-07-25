@@ -1,12 +1,16 @@
 import { REGISTER_CODE } from '@/constant';
 import { JwtPassportMiddleWare } from '@/middleware/jwt.middleware';
 import { AdminService } from '@/service/admin.service';
+import { AuthService } from '@/service/auth.service';
 import { Body, Controller, Get, Inject, Post, Query } from '@midwayjs/core';
 
 @Controller('/admin')
 export class AdminController {
   @Inject()
   adminService: AdminService;
+
+  @Inject()
+  authService: AuthService;
 
   @Post('/login')
   async login(@Body() body: { username: string; password: string }) {
@@ -61,7 +65,7 @@ export class AdminController {
       place_name: string;
       place_type: string;
       place_address: string;
-      extra_info: string;
+      extra_info_json: string;
     }
   ) {
     if (!body.place_name || !body.place_type || !body.place_address) {
@@ -94,7 +98,7 @@ export class AdminController {
       place_name: string;
       place_type: string;
       place_address: string;
-      extra_info: string;
+      extra_info_json: string;
     }
   ) {
     if (!body.place_id) {
@@ -196,5 +200,142 @@ export class AdminController {
       message: '获取工区详情成功',
       data: placeDetail.data,
     };
+  }
+
+  @Get('/user/list', { middleware: [JwtPassportMiddleWare] })
+  async getCurrentPlaceUsers(@Query() query: { place_id: string }) {
+    try {
+      if (!query.place_id) {
+        return {
+          success: false,
+          message: '工区ID不能为空',
+          data: null,
+        };
+      }
+      const userList = await this.authService.getCurrentPlaceUsers(
+        query.place_id
+      );
+      if (!userList.success) {
+        return {
+          success: false,
+          message: '获取当前工区用户失败',
+          data: null,
+        };
+      }
+      return {
+        success: true,
+        message: '获取当前工区用户成功',
+        data: userList.data,
+        total: userList.total,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '获取当前工区用户失败',
+        data: null,
+        total: 0,
+      };
+    }
+  }
+
+  @Post('/user/add', { middleware: [JwtPassportMiddleWare] })
+  async addUser(
+    @Body()
+    body: {
+      place_id: string;
+      phoneNumber: string;
+      password: string;
+      user_name: string;
+    }
+  ) {
+    try {
+      if (!body.place_id || !body.user_name || !body.password) {
+        return {
+          success: false,
+          message: '工区ID、用户名、密码不能为空',
+          data: null,
+        };
+      }
+      const userList = await this.authService.register(
+        body.phoneNumber,
+        body.password,
+        body.user_name,
+        body.place_id
+      );
+      return {
+        success: true,
+        message: '添加用户成功',
+        data: userList,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '添加用户失败',
+        data: null,
+      };
+    }
+  }
+
+  @Post('/user/update', { middleware: [JwtPassportMiddleWare] })
+  async updateUser(
+    @Body()
+    body: {
+      uid: string;
+      user_name: string;
+      phoneNumber: string;
+    }
+  ) {
+    try {
+      const { uid, user_name, phoneNumber } = body;
+      console.log(uid, user_name, phoneNumber);
+      if (!uid || !user_name) {
+        return {
+          success: false,
+          message: '用户ID、用户名不能为空',
+          data: null,
+        };
+      }
+      const updateUser = await this.authService.updateUser(
+        uid,
+        user_name,
+        phoneNumber
+      );
+      return {
+        success: true,
+        message: '更新用户成功',
+        data: updateUser,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '更新用户失败',
+        data: null,
+      };
+    }
+  }
+
+  @Post('/user/delete', { middleware: [JwtPassportMiddleWare] })
+  async deleteUser(@Body() body: { user_id: string }) {
+    try {
+      if (!body.user_id) {
+        return {
+          success: false,
+          message: '用户ID不能为空',
+          data: null,
+        };
+      }
+      const deleteUser = await this.authService.deleteUser(body.user_id);
+      return {
+        success: true,
+        message: '删除用户成功',
+        data: deleteUser,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '删除用户失败',
+        data: null,
+      };
+    }
   }
 }

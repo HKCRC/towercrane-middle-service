@@ -78,12 +78,18 @@ export class AuthService {
     }
   }
 
-  async register(phoneNumber: string, password: string) {
+  async register(
+    phoneNumber: string,
+    password: string,
+    userName?: string,
+    placeId?: string
+  ) {
     try {
       // Check if user already exists
       const existingUser = await PrismaService.user.findFirst({
         where: {
           phoneNumber: phoneNumber,
+          place_id: placeId,
         },
       });
 
@@ -95,12 +101,12 @@ export class AuthService {
 
       const user = await PrismaService.user.create({
         data: {
-          user_name: '塔吊员',
+          user_name: userName || `塔吊员${phoneNumber}`,
           phoneNumber: phoneNumber,
           uid: uuidv4(),
           password: hashedPassword,
           role: UserRole.USER,
-          place_id: '',
+          place_id: placeId,
         },
       });
       return user;
@@ -113,17 +119,63 @@ export class AuthService {
     }
   }
 
+  async updateUser(userId: string, userName: string, phoneNumber: string) {
+    try {
+      const updateUser = await PrismaService.user.update({
+        where: {
+          uid: userId,
+        },
+        data: {
+          user_name: userName,
+          phoneNumber: phoneNumber,
+        },
+      });
+      return updateUser;
+    } catch (error) {
+      console.error(error);
+      throw new Error('更新用户失败');
+    }
+  }
+
+  async deleteUser(userId: string) {
+    try {
+      const deleteUser = await PrismaService.user.delete({
+        where: {
+          uid: userId,
+        },
+      });
+      return deleteUser;
+    } catch (error) {
+      console.error(error);
+      throw new Error('删除用户失败');
+    }
+  }
+
   async getCurrentPlaceUsers(placeId: string) {
     try {
+      const total = await PrismaService.user.count({
+        where: {
+          place_id: placeId,
+        },
+      });
       const users = await PrismaService.user.findMany({
         where: {
           place_id: placeId,
         },
       });
-      return users;
+      return {
+        success: true,
+        message: '获取当前工区用户成功',
+        total,
+        data: users,
+      };
     } catch (error) {
       console.error(error);
-      return [];
+      return {
+        success: false,
+        message: '获取当前工区用户失败',
+        data: [],
+      };
     }
   }
 }

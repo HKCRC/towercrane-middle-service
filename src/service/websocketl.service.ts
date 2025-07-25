@@ -963,6 +963,8 @@ export class SocketIOService {
   private async serverRegisterHandler(socket: Socket, data: any) {
     try {
       const parserData = JSON.parse(data);
+
+      this.logger.info('serverRegisterHandler parserData', parserData);
       // id  name
 
       // 验证必要字段
@@ -1007,6 +1009,9 @@ export class SocketIOService {
           status: parserData.status,
           description: parserData.description,
           algorithm_id: uuidv4(),
+          extra_info_json: {},
+          place_id: parserData.place_id || '1',
+          algorithm_type: parserData.algorithm_type || '1',
         };
         const result = await this.algorithmService.createAlgorithm(algorithm);
         await this.objectInsert(socket.id, {
@@ -1112,13 +1117,16 @@ export class SocketIOService {
       Number(findUserAlgorthmRelation)
     );
 
-    if (getAlgorithm?.algorithm_id === undefined) {
+    if (
+      getAlgorithm?.algorithm_id === undefined ||
+      getAlgorithm?.id === undefined
+    ) {
       this.logger.info('getAlgorithm?.algorithm_id is undefined');
       return;
     }
-    const algorithm_id = getAlgorithm.algorithm_id;
+
     const algorithmSocketID = await this.redisService.hget(
-      `algorithm${algorithm_id}`,
+      `algorithm-register-${getAlgorithm.id}`,
       'socketID'
     );
 
