@@ -57,4 +57,24 @@ export class UploadMapController {
       };
     }
   }
+
+  @Post('/deleteMap')
+  async deleteMap(@Body() body: { mapId: string }) {
+    const { mapId } = body;
+    const mapInfo = await this.uploadMapService.deleteMap(mapId);
+
+    if (mapInfo.success) {
+      return {
+        success: true,
+        message: '删除地图成功',
+        data: mapInfo.data,
+      };
+    } else {
+      return {
+        success: false,
+        message: '删除地图失败',
+        data: null,
+      };
+    }
+  }
 }

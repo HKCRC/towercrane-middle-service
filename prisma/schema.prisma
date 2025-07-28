@@ -28,7 +28,7 @@ model PlaceInfo {
 model User {
   id          Int      @id @default(autoincrement())
   uid         String   @unique
-  phoneNumber String   @unique
+  phoneNumber String   @unique // 早期打算用手机号,但主要做帐号id
   password    String // 存储加密后的密码
   role        Int      @default(1)
   enable      Boolean  @default(true)

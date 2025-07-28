@@ -125,4 +125,26 @@ export class UploadMapService {
       };
     }
   }
+
+  async deleteMap(mapId: string) {
+    try {
+      const deleteMapResult = await PrismaService.mapInfo.delete({
+        where: {
+          map_id: mapId,
+        },
+      });
+
+      return {
+        success: true,
+        message: '删除地图成功',
+        data: deleteMapResult,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '删除地图失败',
+        data: null,
+      };
+    }
+  }
 }
