@@ -246,13 +246,19 @@ export class AdminController {
       phoneNumber: string;
       password: string;
       user_name: string;
+      access_id: string;
     }
   ) {
     try {
-      if (!body.place_id || !body.user_name || !body.password) {
+      if (
+        !body.place_id ||
+        !body.user_name ||
+        !body.password ||
+        !body.access_id
+      ) {
         return {
           success: false,
-          message: '工区ID、用户名、密码不能为空',
+          message: '工区ID、用户名、密码、权限ID不能为空',
           data: null,
         };
       }
@@ -260,7 +266,8 @@ export class AdminController {
         body.phoneNumber,
         body.password,
         body.user_name,
-        body.place_id
+        body.place_id,
+        body.access_id
       );
       return {
         success: true,
@@ -283,12 +290,13 @@ export class AdminController {
       uid: string;
       user_name: string;
       phoneNumber: string;
+      access_id: string;
     }
   ) {
     try {
-      const { uid, user_name, phoneNumber } = body;
-      console.log(uid, user_name, phoneNumber);
-      if (!uid || !user_name) {
+      const { uid, user_name, phoneNumber, access_id } = body;
+      console.log(uid, user_name, phoneNumber, access_id);
+      if (!uid || !user_name || !access_id) {
         return {
           success: false,
           message: '用户ID、用户名不能为空',
@@ -298,7 +306,8 @@ export class AdminController {
       const updateUser = await this.authService.updateUser(
         uid,
         user_name,
-        phoneNumber
+        phoneNumber,
+        access_id
       );
       return {
         success: true,

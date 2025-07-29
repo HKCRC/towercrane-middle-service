@@ -145,10 +145,10 @@ export class AccessController {
     }
   ) {
     try {
-      if (!body.access_id || !body.access_priority || !body.access_status) {
+      if (!body.access_id) {
         return {
           success: false,
-          message: '权限ID、权限优先级和权限状态不能为空',
+          message: '权限ID不能为空',
           data: null,
         };
       }
@@ -207,6 +207,33 @@ export class AccessController {
       return {
         success: false,
         message: '删除权限失败',
+        data: null,
+      };
+    }
+  }
+
+  @Get('/accessTree', { middleware: [JwtPassportMiddleWare] })
+  async getAccessTree() {
+    try {
+      const accessTree = await this.accessService.getAccessTree();
+      console.log(accessTree);
+      if (!accessTree.success) {
+        return {
+          success: false,
+          message: '获取权限树失败',
+          data: null,
+        };
+      }
+
+      return {
+        success: true,
+        message: '获取权限树成功',
+        data: accessTree.data,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '获取权限树失败',
         data: null,
       };
     }

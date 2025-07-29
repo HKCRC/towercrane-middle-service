@@ -163,6 +163,91 @@ export class AccessService {
     }
   }
 
+  async getAccessTree() {
+    try {
+      // 获取所有权限数据
+      const allAccess = await PrismaService.accessTree.findMany();
+
+      // 构建权限树
+      const accessTree = this.buildAccessTree(allAccess);
+
+      if (accessTree) {
+        return {
+          success: true,
+          message: '获取权限树成功',
+          data: accessTree,
+        };
+      } else {
+        return {
+          success: false,
+          message: '获取权限树失败',
+          data: null,
+        };
+      }
+    } catch (error) {
+      console.log(error);
+      return {
+        success: false,
+        message: '获取权限树失败',
+        data: null,
+      };
+    }
+  }
+
+  // 递归构建权限树
+  private buildAccessTree(allAccess: any[]): any[] {
+    const tree: any[] = [];
+
+    // 找到所有顶级权限（parent_id为空或为'0'的）
+    const rootAccess = allAccess.filter(
+      access =>
+        !access.parent_id || access.parent_id === '' || access.parent_id === '0'
+    );
+
+    // 为每个顶级权限构建子树
+    for (const access of rootAccess) {
+      const node = {
+        ...access,
+        children: this.buildChildrenTree(allAccess, access.access_id),
+      };
+      tree.push(node);
+    }
+
+    return tree;
+  }
+
+  // 递归构建子权限树
+  private buildChildrenTree(allAccess: any[], parentId: string): any[] {
+    const children = this.findChildrenByParentId(allAccess, parentId);
+    const childrenTree: any[] = [];
+
+    for (const child of children) {
+      const childNode = {
+        ...child,
+        children: this.buildChildrenTree(allAccess, child.access_id),
+      };
+      childrenTree.push(childNode);
+    }
+
+    return childrenTree;
+  }
+
+  // 根据parent_id查找子权限
+  private findChildrenByParentId(allAccess: any[], parentId: string): any[] {
+    return allAccess.filter(access => {
+      // 检查parent_id是否包含当前权限的ID
+      if (!access.parent_id) return false;
+
+      // 如果parent_id是逗号分隔的字符串，检查是否包含当前parentId
+      if (access.parent_id.includes(',')) {
+        return access.parent_id.split(',').includes(parentId);
+      }
+
+      // 直接匹配
+      return access.parent_id === parentId;
+    });
+  }
+
   async deleteAccess({ access_id }: { access_id: string }) {
     try {
       const access = await PrismaService.accessTree.delete({

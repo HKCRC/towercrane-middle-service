@@ -82,7 +82,8 @@ export class AuthService {
     phoneNumber: string,
     password: string,
     userName?: string,
-    placeId?: string
+    placeId?: string,
+    access_id?: string
   ) {
     try {
       // Check if user already exists
@@ -107,6 +108,7 @@ export class AuthService {
           password: hashedPassword,
           role: UserRole.USER,
           place_id: placeId,
+          access_id: access_id,
         },
       });
       return user;
@@ -119,7 +121,12 @@ export class AuthService {
     }
   }
 
-  async updateUser(userId: string, userName: string, phoneNumber: string) {
+  async updateUser(
+    userId: string,
+    userName: string,
+    phoneNumber: string,
+    access_id: string
+  ) {
     try {
       const updateUser = await PrismaService.user.update({
         where: {
@@ -128,6 +135,7 @@ export class AuthService {
         data: {
           user_name: userName,
           phoneNumber: phoneNumber,
+          access_id: access_id,
         },
       });
       return updateUser;
