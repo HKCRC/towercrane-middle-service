@@ -3,7 +3,7 @@ import { UploadMapService } from '@/service/uploadmap.service';
 import { JwtPassportMiddleWare } from '@/middleware/jwt.middleware';
 
 @Controller('/uploadmap')
-export class UploadMapController {
+export class MapController {
   @Inject()
   uploadMapService: UploadMapService;
 

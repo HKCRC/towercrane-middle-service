@@ -35,6 +35,7 @@ model User {
   place_id    String   @default("")
   createdAt   DateTime @default(now())
   user_name   String   @default("塔吊员")
+  access_id   String   @default("")
 }
 
 // 算法信息
@@ -77,4 +78,27 @@ model MapInfo {
   createdAt      DateTime @default(now())
   map_url        String   @default("")
   isUsed         Boolean  @default(false)
+}
+
+// 权限身份
+model AccessIdentity {
+  id              Int      @id @default(autoincrement())
+  identity_id     String   @unique // 身份id
+  identity_name   String   @default("") // 身份名称
+  identity_value  String   @default("") // 拥有的权限，用逗号分隔
+  createdAt       DateTime @default(now())
+  extra_info_json Json     @map("extra_info_json") // 额外信息
+}
+
+// 权限树 权限子项
+model AccessTree {
+  id              Int      @id @default(autoincrement())
+  access_name     String   @default("") // 权限名称
+  access_id       String   @unique // 权限id
+  access_priority Int      @default(1) // 权限优先级 
+  access_status   String   @default("0") // 0: 未使用 1: 已使用
+  createdAt       DateTime @default(now())
+  parent_id       String   @default("") // 父级id 用逗号分隔
+  child_id        String   @default("") // 子级id 用逗号分隔
+  extra_info_json Json     @map("extra_info_json") // 额外信息
 }
