@@ -35,7 +35,7 @@ model User {
   place_id    String   @default("")
   createdAt   DateTime @default(now())
   user_name   String   @default("塔吊员")
-  access_id   String   @default("") // 这里应该分配的是identity_id
+  identity_id String   @default("") // 身份ID，对应AccessIdentity表的identity_id
 }
 
 // 算法信息

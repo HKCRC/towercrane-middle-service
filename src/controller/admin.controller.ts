@@ -246,7 +246,7 @@ export class AdminController {
       phoneNumber: string;
       password: string;
       user_name: string;
-      access_id: string;
+      identity_id: string;
     }
   ) {
     try {
@@ -254,7 +254,7 @@ export class AdminController {
         !body.place_id ||
         !body.user_name ||
         !body.password ||
-        !body.access_id
+        !body.identity_id
       ) {
         return {
           success: false,
@@ -267,7 +267,7 @@ export class AdminController {
         body.password,
         body.user_name,
         body.place_id,
-        body.access_id
+        body.identity_id
       );
       return {
         success: true,
@@ -290,13 +290,12 @@ export class AdminController {
       uid: string;
       user_name: string;
       phoneNumber: string;
-      access_id: string;
+      identity_id: string;
     }
   ) {
     try {
-      const { uid, user_name, phoneNumber, access_id } = body;
-      console.log(uid, user_name, phoneNumber, access_id);
-      if (!uid || !user_name || !access_id) {
+      const { uid, user_name, phoneNumber, identity_id } = body;
+      if (!uid || !user_name || !identity_id) {
         return {
           success: false,
           message: '用户ID、用户名不能为空',
@@ -307,7 +306,7 @@ export class AdminController {
         uid,
         user_name,
         phoneNumber,
-        access_id
+        identity_id
       );
       return {
         success: true,

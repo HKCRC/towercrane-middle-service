@@ -1,6 +1,5 @@
-import { Server, Socket } from 'socket.io';
+import { Server, Socket, ServerOptions } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import { ServerOptions } from 'socket.io';
 import { ILogger, Inject, Provide, Scope, ScopeEnum } from '@midwayjs/core';
 import { RedisService } from '@midwayjs/redis';
 import {
@@ -1272,6 +1271,8 @@ export class SocketIOService {
   /**
    * 启动30秒全局检查机制
    */
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
   private startGlobalCheck(): void {
     if (this.globalCheckTimer) {
       this.logger.warn('Global check timer already running');
