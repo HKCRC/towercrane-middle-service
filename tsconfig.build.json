@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "noResolve": false,
+    "isolatedModules": false,
+    "noEmitOnError": false
+  },
+  "exclude": [
+    "*.js",
+    "*.ts",
+    "dist",
+    "node_modules",
+    "node_modules/.prisma/**/*",
+    "node_modules/@prisma/**/*",
+    "**/node_modules/.prisma/**",
+    "**/node_modules/@prisma/**",
+    "**/.prisma/**",
+    "test",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+  "include": [
+    "src/**/*"
+  ]
+}
