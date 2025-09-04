@@ -12,6 +12,8 @@
     "stripInternal": true,
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
+    "noResolve": false,
+    "isolatedModules": false,
     "pretty": true,
     "declaration": true,
     "forceConsistentCasingInFileNames": true,
@@ -29,6 +31,9 @@
     "dist",
     "node_modules",
     "node_modules/.prisma/**/*",
+    "node_modules/@prisma/**/*",
+    "**/node_modules/.prisma/**",
+    "**/node_modules/@prisma/**",
     "test"
   ]
 }
