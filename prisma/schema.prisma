@@ -78,6 +78,7 @@ model MapInfo {
   createdAt      DateTime @default(now())
   map_url        String   @default("")
   isUsed         Boolean  @default(false)
+  pointCloud_url String   @default("")
 }
 
 // 权限身份
