@@ -30,11 +30,6 @@
     "*.ts",
     "dist",
     "node_modules",
-    "node_modules/.prisma/**/*",
-    "node_modules/@prisma/**/*",
-    "**/node_modules/.prisma/**",
-    "**/node_modules/@prisma/**",
-    "node_modules/.prisma/client/index.d.ts",
     "test"
   ]
 }
