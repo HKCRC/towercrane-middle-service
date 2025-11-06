@@ -738,7 +738,7 @@ export class SocketIOService {
       return;
     }
     // 如果没有传入algorithmID，尝试通过userID反向查找
-    const algorithmID = await this.findAlgorithmByUserId(userID);
+    const algorithmID = await this.getAlgorithmByUserId(userID);
 
     // 清理用户占用的算法资源
     if (algorithmID && userID) {
@@ -750,20 +750,45 @@ export class SocketIOService {
     }
   }
 
-  // 添加反向查找方法
+  // 反向查找方法（备用方法，优先使用 getAlgorithmByUserId）
+  // 此方法通过遍历所有 algorithm- 键来查找，效率较低，但在反向索引失效时可作为备用
   public async findAlgorithmByUserId(userId: string): Promise<string | null> {
     try {
+      // 获取所有 algorithm- 开头的键
       const keys = await this.redisService.keys('algorithm-*');
 
       for (const key of keys) {
-        const value = await this.redisService.get(key);
-        if (value === userId) {
-          // 提取algorithm ID
-          const algorithmId = key.replace('algorithm-', '');
-          return algorithmId;
+        try {
+          // 跳过 algorithm-register- 开头的键，这些是Hash类型
+          if (key.startsWith('algorithm-register-')) {
+            continue;
+          }
+
+          // 只处理纯 algorithm-{algorithmId} 格式的String类型键
+          // 检查键名格式：algorithm- 后面应该只有数字或字母数字组合，不应该有更多的连字符
+          const algorithmPart = key.substring('algorithm-'.length);
+          if (algorithmPart.includes('-')) {
+            // 如果还包含连字符，说明这不是纯算法控制权键，跳过
+            continue;
+          }
+
+          const value = await this.redisService.get(key);
+          if (value === userId) {
+            // 提取algorithm ID
+            const algorithmId = algorithmPart;
+            this.logger.info(
+              `Found algorithm ${algorithmId} for user ${userId}`
+            );
+            return algorithmId;
+          }
+        } catch (keyError) {
+          // 如果某个键操作失败，记录警告但继续处理其他键
+          this.logger.warn(`Failed to process key ${key}:`, keyError.message);
+          continue;
         }
       }
 
+      this.logger.info(`No algorithm found for user ${userId}`);
       return null;
     } catch (error) {
       this.logger.error('findAlgorithmByUserId Error:', error);
@@ -1107,7 +1132,7 @@ export class SocketIOService {
       return;
     }
 
-    const findUserAlgorthmRelation = await this.findAlgorithmByUserId(userId);
+    const findUserAlgorthmRelation = await this.getAlgorithmByUserId(userId);
 
     if (findUserAlgorthmRelation === null) {
       this.logger.info('findUserAlgorthmRelation is null');
