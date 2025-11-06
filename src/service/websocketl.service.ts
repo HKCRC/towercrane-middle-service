@@ -72,6 +72,7 @@ export class SocketIOService {
         credentials: true,
       },
       allowUpgrades: true,
+      allowEIO3: true,
       transports: ['websocket', 'polling'],
       pingTimeout: 60000,
       pingInterval: 25000,
