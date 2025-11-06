@@ -186,6 +186,7 @@ export class SocketIOService {
       });
 
       socket.on(SOCKET_EVENT.CLIENT_MSG, async (data: any) => {
+        this.logger.info(`收到客户端消息---${JSON.stringify(data)}`);
         const { userID } = socket.handshake.auth;
         if (!userID) {
           this.logger.error('clientMsgHandler Error:', 'userID is undefined');
@@ -457,7 +458,6 @@ export class SocketIOService {
   }
 
   private async clientLocationHandler(socket: Socket, data: any) {
-    console.log('收到客户端位置消息:', data);
     try {
       const parseData = JSON.parse(data);
       if (!parseData?.userID) {
@@ -478,7 +478,6 @@ export class SocketIOService {
         userID,
         JSON.stringify(insertLocationAndUserInfo)
       );
-      this.logger.info('收到客户端位置消息:', JSON.stringify(parseData));
     } catch (error) {
       this.logger.error('clientLocationHandler Error:', error);
     }
