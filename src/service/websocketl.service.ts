@@ -72,7 +72,6 @@ export class SocketIOService {
         credentials: true,
       },
       allowUpgrades: true,
-      allowEIO3: true,
       transports: ['websocket', 'polling'],
       pingTimeout: 60000,
       pingInterval: 25000,
@@ -187,6 +186,7 @@ export class SocketIOService {
       });
 
       socket.on(SOCKET_EVENT.CLIENT_MSG, async (data: any) => {
+        console.error(`收到客户端消息---${JSON.stringify(data)}`);
         this.logger.info(`收到客户端消息---${JSON.stringify(data)}`);
         const { userID } = socket.handshake.auth;
         if (!userID) {
