@@ -15,7 +15,7 @@ export const API_HOST =
     : 'http://127.0.0.1:7001';
 
 export enum SOCKET_EVENT {
-  CLIENT_MSG = 'client-msgs',
+  CLIENT_MSG = 'client-msg',
   SERVER_MSG = 'server-msg',
   SERVER_REGISTER = 'server-register',
   CLIENT_RELATION_REGISTER = 'client-relation-register',
