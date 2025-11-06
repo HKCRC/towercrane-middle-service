@@ -222,6 +222,7 @@ export class SocketIOService {
           });
           return;
         }
+        this.logger.info(`消息转发---${JSON.stringify(data)}`);
         this.clientMsgHandler(socket, data);
       });
 
@@ -1132,6 +1133,9 @@ export class SocketIOService {
     try {
       if (typeof data === 'string' && !Buffer.isBuffer(data)) {
         data = JSON.stringify(data);
+        this.logger.info(
+          `转发给其他客户端1：${algorithmSocketID}-${JSON.stringify(data)}`
+        );
         this.sendToClient(algorithmSocketID, SOCKET_EVENT.SERVER_MSG, data);
       } else if (Buffer.isBuffer(data)) {
         const binaryData = Buffer.from(data);
@@ -1140,6 +1144,11 @@ export class SocketIOService {
         bufferWithFlag.writeUInt8(BINARY_FLAG, 0); // 在第一个位置写入标识位, 使用该方法避免算法端的数据被误解析
         binaryData.copy(bufferWithFlag, 1);
         this.logger.info('binaryData:', bufferWithFlag);
+        this.logger.info(
+          `转发给其他客户端2：${algorithmSocketID}-${JSON.stringify(
+            binaryData
+          )}`
+        );
         // 广播给其他客户端
         this.sendToClient(
           algorithmSocketID,
